@@ -2,15 +2,17 @@ use std::process::Command;
 
 #[test]
 fn test_assembly_exit_status() {
-    assert_exit_status(0);
-    assert_exit_status(1);
-    assert_exit_status(42);
+    assert_exit_status("0", 0);
+    assert_exit_status("1", 1);
+    assert_exit_status("42", 42);
+    assert_exit_status("5+20-4", 21);
+    assert_exit_status("40-20-4", 16);
 }
 
-fn assert_exit_status(expected_status: i32) {
+fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
     let asm_out = Command::new(compiler)
-        .arg(expected_status.to_string())
+        .arg(program)
         .output()
         .expect("failed to run the compiler");
     assert!(asm_out.status.success());

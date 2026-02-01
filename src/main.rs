@@ -7,13 +7,40 @@ fn main() {
         std::process::exit(1);
     }
 
-    let Ok(exit_status) = args.next().unwrap().parse::<i32>() else {
-        eprintln!("{program_name}: expected integer status code argument");
-        std::process::exit(1);
-    };
-
     println!("  .globl main");
     println!("main:");
-    println!("  mov ${exit_status}, %rax");
+
+    let program = args.next().unwrap();
+    let (operand, program) = program.split_at(
+        program
+            .find(|c: char| !c.is_numeric())
+            .unwrap_or(program.len()),
+    );
+    let Ok(operand) = operand.parse::<i32>() else {
+        eprintln!("{program_name}: expected integer operands");
+        std::process::exit(1);
+    };
+    println!("  mov ${operand}, %rax");
+
+    let mut program = program.chars().peekable();
+    while let Some(c) = program.next() {
+        let mut operand = String::new();
+        while let Some(&n) = program.peek()
+            && n.is_numeric()
+        {
+            operand.push(n);
+            program.next();
+        }
+
+        match c {
+            '+' => println!("  add ${operand}, %rax"),
+            '-' => println!("  sub ${operand}, %rax"),
+            c => {
+                eprintln!("{program_name}: unexpected character: `{c}'");
+                std::process::exit(1);
+            }
+        }
+    }
+
     println!("  ret");
 }
