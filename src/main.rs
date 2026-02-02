@@ -1,5 +1,5 @@
 use ecc::{
-    tokenize::{Kind, tokenize},
+    lexer::{Kind, Lexer, Token},
     util,
 };
 
@@ -11,42 +11,47 @@ fn main() {
     }
 
     let _exe_name = args.next().unwrap();
-    let program = args.next().unwrap();
-    let mut tokens = tokenize(&program).into_iter();
+    let input = args.next().unwrap();
+
+    let lexer = Lexer::new(&input);
+    let mut tokens = lexer.into_iter();
 
     println!("  .globl main");
     println!("main:");
 
-    let mut instructions: Vec<String> = Vec::new();
-    while let Some(token) = tokens.next() {
-        if instructions.is_empty() {
-            let Kind::Numeric(num) = token.kind else {
-                util::errx("expected a number");
-            };
-            instructions.push(format!("  mov ${num}, %rax"));
-            continue;
-        }
+    let Some(Token {
+        kind: Kind::Numeric(initial),
+        ..
+    }) = tokens.next()
+    else {
+        util::err_at("expected a number", &input, 0);
+    };
+    println!("  mov ${initial}, %rax");
 
-        match token.kind {
+    while let Some(Token {
+        kind,
+        index,
+        length,
+    }) = tokens.next()
+    {
+        match kind {
             Kind::Punctuation(op @ ('+' | '-')) => {
-                let Some(token) = tokens.next() else {
-                    util::errx("expected a number");
+                let Some(Token {
+                    kind: Kind::Numeric(operand),
+                    ..
+                }) = tokens.next()
+                else {
+                    util::err_at("expected a number", &input, index + length);
                 };
-                let Kind::Numeric(num) = token.kind else {
-                    util::errx("expected a number");
-                };
-                instructions.push(format!(
-                    "  {} ${num}, %rax",
-                    if op == '+' { "add " } else { "sub" }
-                ));
+
+                println!(
+                    "  {} ${operand}, %rax",
+                    if op == '+' { "add" } else { "sub" }
+                );
             }
-            Kind::EOF => break,
-            _ => util::errx("got an unexpected token"),
+            _ => util::err_at("got an unimplemented token", &input, index),
         }
     }
 
-    for instruction in instructions {
-        println!("{instruction }");
-    }
     println!("  ret");
 }

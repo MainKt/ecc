@@ -17,6 +17,7 @@ fn test_basic_arithmetic() {
 fn test_basic_arithmetic_with_spaces() {
     assert_exit_status("12 + 34 - 5", 41);
     assert_exit_status("12+34 - 5", 41);
+    assert_exit_status(" 12 + 34 - 5 ", 41);
 }
 
 fn assert_exit_status(program: &str, expected_status: i32) {
