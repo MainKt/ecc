@@ -2,7 +2,6 @@ use std::{iter::Peekable, vec::IntoIter};
 
 use crate::lexer::{Token, TokenKind};
 
-#[derive(Debug)]
 pub enum Node {
     Add(Box<Node>, Box<Node>),
     Subtract(Box<Node>, Box<Node>),

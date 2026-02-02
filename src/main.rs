@@ -1,4 +1,4 @@
-use ecc::{lexer::Lexer, parser::Parser, util};
+use ecc::{code_gen::CodeGen, lexer::Lexer, parser::Parser, util};
 
 fn main() {
     let mut args = std::env::args();
@@ -25,7 +25,10 @@ fn main() {
     println!("  .globl main");
     println!("main:");
 
-    dbg!(node);
+    let code_gen = CodeGen::new();
+    for instruction in code_gen.generate_assembly(&node) {
+        println!("{instruction }")
+    }
 
     println!("  ret");
 }
