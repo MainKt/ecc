@@ -1,46 +1,52 @@
+use ecc::{
+    tokenize::{Kind, tokenize},
+    util,
+};
+
 fn main() {
     let mut args = std::env::args();
-    let program_name = args.next().unwrap();
 
-    if args.len() != 1 {
-        eprintln!("{program_name}: invalid number of arguments");
-        std::process::exit(1);
+    if args.len() != 2 {
+        util::errx("invalid number of arguments");
     }
+
+    let _exe_name = args.next().unwrap();
+    let program = args.next().unwrap();
+    let mut tokens = tokenize(&program).into_iter();
 
     println!("  .globl main");
     println!("main:");
 
-    let program = args.next().unwrap();
-    let (operand, program) = program.split_at(
-        program
-            .find(|c: char| !c.is_numeric())
-            .unwrap_or(program.len()),
-    );
-    let Ok(operand) = operand.parse::<i32>() else {
-        eprintln!("{program_name}: expected integer operands");
-        std::process::exit(1);
-    };
-    println!("  mov ${operand}, %rax");
-
-    let mut program = program.chars().peekable();
-    while let Some(c) = program.next() {
-        let mut operand = String::new();
-        while let Some(&n) = program.peek()
-            && n.is_numeric()
-        {
-            operand.push(n);
-            program.next();
+    let mut instructions: Vec<String> = Vec::new();
+    while let Some(token) = tokens.next() {
+        if instructions.is_empty() {
+            let Kind::Numeric(num) = token.kind else {
+                util::errx("expected a number");
+            };
+            instructions.push(format!("  mov ${num}, %rax"));
+            continue;
         }
 
-        match c {
-            '+' => println!("  add ${operand}, %rax"),
-            '-' => println!("  sub ${operand}, %rax"),
-            c => {
-                eprintln!("{program_name}: unexpected character: `{c}'");
-                std::process::exit(1);
+        match token.kind {
+            Kind::Punctuation(op @ ('+' | '-')) => {
+                let Some(token) = tokens.next() else {
+                    util::errx("expected a number");
+                };
+                let Kind::Numeric(num) = token.kind else {
+                    util::errx("expected a number");
+                };
+                instructions.push(format!(
+                    "  {} ${num}, %rax",
+                    if op == '+' { "add " } else { "sub" }
+                ));
             }
+            Kind::EOF => break,
+            _ => util::errx("got an unexpected token"),
         }
     }
 
+    for instruction in instructions {
+        println!("{instruction }");
+    }
     println!("  ret");
 }

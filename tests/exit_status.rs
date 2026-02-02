@@ -5,8 +5,18 @@ fn test_assembly_exit_status() {
     assert_exit_status("0", 0);
     assert_exit_status("1", 1);
     assert_exit_status("42", 42);
+}
+
+#[test]
+fn test_basic_arithmetic() {
     assert_exit_status("5+20-4", 21);
     assert_exit_status("40-20-4", 16);
+}
+
+#[test]
+fn test_basic_arithmetic_with_spaces() {
+    assert_exit_status("12 + 34 - 5", 41);
+    assert_exit_status("12+34 - 5", 41);
 }
 
 fn assert_exit_status(program: &str, expected_status: i32) {
@@ -15,7 +25,7 @@ fn assert_exit_status(program: &str, expected_status: i32) {
         .arg(program)
         .output()
         .expect("failed to run the compiler");
-    assert!(asm_out.status.success());
+    assert!(asm_out.status.success(), "{}", program);
 
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let asm_path = dir.path().join("asm.S");
