@@ -1,16 +1,25 @@
 use std::{iter::Peekable, str::CharIndices};
 
-use crate::util;
-
 #[derive(Debug)]
-pub enum Kind {
+pub enum TokenKind {
     Punctuation(char),
     Numeric(i64),
+    EOF,
+}
+
+impl std::fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenKind::Punctuation(c) => write!(f, "{c}"),
+            TokenKind::Numeric(n) => write!(f, "{n}"),
+            TokenKind::EOF => write!(f, "End Of File"),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Token {
-    pub kind: Kind,
+    pub kind: TokenKind,
     pub index: usize,
     pub length: usize,
 }
@@ -20,6 +29,33 @@ pub struct Lexer<'a> {
     chars: Peekable<CharIndices<'a>>,
 }
 
+pub enum LexErrorKind {
+    InvalidToken { index: usize },
+}
+
+pub struct LexError<'a> {
+    input: &'a str,
+    kind: LexErrorKind,
+}
+
+impl<'a> LexError<'a> {
+    pub fn new(input: &'a str, kind: LexErrorKind) -> Self {
+        Self { input, kind }
+    }
+}
+
+impl<'a> std::fmt::Display for LexError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            LexErrorKind::InvalidToken { index } => {
+                writeln!(f, "{}", self.input)?;
+                writeln!(f, "{:>width$}^", "", width = index)?;
+                write!(f, "invalid token")
+            }
+        }
+    }
+}
+
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
@@ -27,12 +63,16 @@ impl<'a> Lexer<'a> {
             chars: input.char_indices().peekable(),
         }
     }
-}
+    pub fn input(&self) -> &'a str {
+        self.input
+    }
 
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
+    pub fn err_invalid_token(self, index: usize) -> LexError<'a> {
+        LexError::new(self.input, LexErrorKind::InvalidToken { index })
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn tokenize(mut self) -> Result<Vec<Token>, LexError<'a>> {
+        let mut tokens = vec![];
         while let Some((index, c)) = self.chars.next() {
             match c {
                 c if c.is_whitespace() => continue,
@@ -48,23 +88,31 @@ impl<'a> Iterator for Lexer<'a> {
                         length += 1;
                     }
 
-                    return Some(Token {
-                        kind: Kind::Numeric(num.parse().expect("should parse as a number")),
+                    tokens.push(Token {
+                        kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
                         index,
                         length,
                     });
                 }
-                '+' | '-' => {
-                    return Some(Token {
-                        kind: Kind::Punctuation(c),
+                c if c.is_ascii_punctuation() => {
+                    tokens.push(Token {
+                        kind: TokenKind::Punctuation(c),
                         index,
                         length: 1,
                     });
                 }
-                _ => util::err_at("invalid token", self.input, index),
+                _ => {
+                    return Err(self.err_invalid_token(index));
+                }
             }
         }
 
-        None
+        tokens.push(Token {
+            kind: TokenKind::EOF,
+            index: self.input().len(),
+            length: 0,
+        });
+
+        Ok(tokens)
     }
 }

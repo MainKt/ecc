@@ -18,6 +18,13 @@ fn test_basic_arithmetic_with_spaces() {
     assert_exit_status("12 + 34 - 5", 41);
     assert_exit_status("12+34 - 5", 41);
     assert_exit_status(" 12 + 34 - 5 ", 41);
+    assert_exit_status("5+6*7", 47);
+}
+
+#[test]
+fn test_parentheses() {
+    assert_exit_status("5*(9-6)", 15);
+    assert_exit_status("(3+5)/2", 4);
 }
 
 fn assert_exit_status(program: &str, expected_status: i32) {

@@ -1,7 +1,4 @@
-use ecc::{
-    lexer::{Kind, Lexer, Token},
-    util,
-};
+use ecc::{lexer::Lexer, parser::Parser, util};
 
 fn main() {
     let mut args = std::env::args();
@@ -14,44 +11,21 @@ fn main() {
     let input = args.next().unwrap();
 
     let lexer = Lexer::new(&input);
-    let mut tokens = lexer.into_iter();
+    let tokens = match lexer.tokenize() {
+        Ok(tokens) => tokens,
+        Err(err) => util::errx(&format!("{err}")),
+    };
+
+    let parser = Parser::new(&input, tokens);
+    let node = match parser.parse() {
+        Ok(node) => node,
+        Err(err) => util::errx(&format!("{err}")),
+    };
 
     println!("  .globl main");
     println!("main:");
 
-    let Some(Token {
-        kind: Kind::Numeric(initial),
-        ..
-    }) = tokens.next()
-    else {
-        util::err_at("expected a number", &input, 0);
-    };
-    println!("  mov ${initial}, %rax");
-
-    while let Some(Token {
-        kind,
-        index,
-        length,
-    }) = tokens.next()
-    {
-        match kind {
-            Kind::Punctuation(op @ ('+' | '-')) => {
-                let Some(Token {
-                    kind: Kind::Numeric(operand),
-                    ..
-                }) = tokens.next()
-                else {
-                    util::err_at("expected a number", &input, index + length);
-                };
-
-                println!(
-                    "  {} ${operand}, %rax",
-                    if op == '+' { "add" } else { "sub" }
-                );
-            }
-            _ => util::err_at("got an unimplemented token", &input, index),
-        }
-    }
+    dbg!(node);
 
     println!("  ret");
 }
