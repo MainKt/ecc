@@ -27,6 +27,13 @@ fn test_parentheses() {
     assert_exit_status("(3+5)/2", 4);
 }
 
+#[test]
+fn test_unary() {
+    assert_exit_status("-10+20", 10);
+    assert_exit_status("- -10", 10);
+    assert_exit_status("- - +10", 10);
+}
+
 fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
     let asm_out = Command::new(compiler)

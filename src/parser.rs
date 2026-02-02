@@ -7,6 +7,7 @@ pub enum Node {
     Subtract(Box<Node>, Box<Node>),
     Multiply(Box<Node>, Box<Node>),
     Divide(Box<Node>, Box<Node>),
+    Negative(Box<Node>),
     Numeric(i64),
 }
 
@@ -150,18 +151,36 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_unary(&mut self) -> Result<Node, ParseError<'a>> {
+        let Some(token) = self.tokens.peek() else {
+            return Err(self.err_unusual_end_of_tokens());
+        };
+
+        match token.kind {
+            TokenKind::Punctuation('+') => {
+                self.tokens.next();
+                self.parse_unary()
+            }
+            TokenKind::Punctuation('-') => {
+                self.tokens.next();
+                Ok(Node::Negative(Box::new(self.parse_unary()?)))
+            }
+            _ => self.parse_primary(),
+        }
+    }
+
     fn parse_multiplicative(&mut self) -> Result<Node, ParseError<'a>> {
-        let mut node = self.parse_primary()?;
+        let mut node = self.parse_unary()?;
 
         while let Some(token) = self.tokens.peek() {
             match token.kind {
                 TokenKind::Punctuation('*') => {
                     self.tokens.next();
-                    node = Node::Multiply(Box::new(node), Box::new(self.parse_multiplicative()?))
+                    node = Node::Multiply(Box::new(node), Box::new(self.parse_unary()?))
                 }
                 TokenKind::Punctuation('/') => {
                     self.tokens.next();
-                    node = Node::Divide(Box::new(node), Box::new(self.parse_multiplicative()?))
+                    node = Node::Divide(Box::new(node), Box::new(self.parse_unary()?))
                 }
                 _ => break,
             }

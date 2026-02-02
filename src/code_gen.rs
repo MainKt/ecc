@@ -55,6 +55,10 @@ impl CodeGen {
                 self.instructions.push("  idiv %rdi".into());
             }
             Node::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax")),
+            Node::Negative(lhs) => {
+                self.traverse(lhs);
+                self.instructions.push("  neg %rax".into());
+            }
         }
     }
 }
