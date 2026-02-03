@@ -162,13 +162,36 @@ impl<'a> CodeGen<'a> {
                 self.instructions.push("  cmp $0, %rax".into());
                 self.instructions
                     .push(format!("  je .L.else.{block}").into());
-                self.traverse(then_block); // stmt
+                self.traverse(then_block);
                 self.instructions
                     .push(format!("  jmp .L.end.{block}").into());
                 self.instructions.push(format!(".L.else.{block}:").into());
                 if let Some(else_block) = else_block {
-                    self.traverse(else_block); // stmt
+                    self.traverse(else_block);
                 }
+                self.instructions.push(format!(".L.end.{block}:").into());
+            }
+            Node::For {
+                init,
+                condition,
+                increment,
+                loop_block,
+            } => {
+                let block = self.next_block_number();
+                self.traverse(init);
+                self.instructions.push(format!(".L.begin.{block}:").into());
+                if let Some(condition) = condition {
+                    self.traverse(condition);
+                    self.instructions.push("  cmp $0, %rax".into());
+                    self.instructions
+                        .push(format!("  je .L.end.{block}").into());
+                }
+                self.traverse(loop_block);
+                if let Some(increment) = increment {
+                    self.traverse(increment);
+                }
+                self.instructions
+                    .push(format!("  jmp .L.begin.{block}").into());
                 self.instructions.push(format!(".L.end.{block}:").into());
             }
         }

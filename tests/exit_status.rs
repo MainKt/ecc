@@ -94,6 +94,15 @@ fn test_if_statement() {
     assert_exit_status("{ if (1) { 1; 2; return 3; } else { return 4; } }", 3);
 }
 
+#[test]
+fn test_for_statement() {
+    assert_exit_status("{ for (;;) {return 3;} return 5; }", 3);
+    assert_exit_status(
+        "{ i = 0; j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
+        55,
+    );
+}
+
 fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
     let asm_out = Command::new(compiler)

@@ -45,6 +45,12 @@ pub enum Node<'a> {
         then_block: Box<Node<'a>>,
         else_block: Option<Box<Node<'a>>>,
     },
+    For {
+        init: Box<Node<'a>>,
+        condition: Option<Box<Node<'a>>>,
+        increment: Option<Box<Node<'a>>>,
+        loop_block: Box<Node<'a>>,
+    },
 }
 
 #[derive(Debug)]
@@ -78,9 +84,9 @@ impl<'a> Function<'a> {
     }
 
     pub fn get_or_allocate_local(&mut self, name: &'a str) -> Rc<RefCell<Object<'a>>> {
-        self.offset += 8;
-
         let object = self.locals.entry(name).or_insert_with(|| {
+            self.offset += 8;
+
             Rc::new(RefCell::new(Object {
                 name,
                 offset: -(self.offset as isize),
@@ -341,6 +347,7 @@ impl<'a> Parser<'a> {
 
     // stmt = "return" expr ";"
     //      | "if" "(" expr ")" stmt ("else" stmt)?
+    //      | "for" "(" expr-stmt expr? ";" expr? ")" stmt
     //      | "{" compound-stmt
     //      | expr-stmt
     fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
@@ -385,6 +392,46 @@ impl<'a> Parser<'a> {
                     condition,
                     then_block,
                     else_block,
+                })
+            }
+            Some(Token {
+                kind: TokenKind::Keyword("for"),
+                ..
+            }) => {
+                self.tokens.next();
+                self.expect_next(TokenKind::Punctuation("("))?;
+
+                let init = Box::new(self.parse_expr_statement()?);
+
+                let condition = if let Some(Token {
+                    kind: TokenKind::Punctuation(";"),
+                    ..
+                }) = self.tokens.peek()
+                {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expression()?))
+                };
+                self.expect_next(TokenKind::Punctuation(";"))?;
+
+                let increment = if let Some(Token {
+                    kind: TokenKind::Punctuation(")"),
+                    ..
+                }) = self.tokens.peek()
+                {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expression()?))
+                };
+                self.expect_next(TokenKind::Punctuation(")"))?;
+
+                let loop_block = Box::new(self.parse_statement()?);
+
+                Ok(Node::For {
+                    init,
+                    condition,
+                    increment,
+                    loop_block,
                 })
             }
             Some(Token {

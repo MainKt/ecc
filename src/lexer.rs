@@ -168,5 +168,7 @@ fn is_valid_identifier_tail(c: char) -> bool {
 }
 
 fn is_keyword(s: &str) -> bool {
-    ["return", "if", "else"].iter().any(|&keyword| s == keyword)
+    ["return", "if", "else", "for"]
+        .iter()
+        .any(|&keyword| s == keyword)
 }
