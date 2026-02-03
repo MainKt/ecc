@@ -2,6 +2,7 @@ use std::{iter::Peekable, vec::IntoIter};
 
 use crate::lexer::{Token, TokenKind};
 
+#[derive(Debug)]
 pub enum BinaryKind {
     Add,
     Subtract,
@@ -11,13 +12,17 @@ pub enum BinaryKind {
     NotEqual,
     LessThan,
     LessThanEqual,
+    Assign,
 }
 
+#[derive(Debug)]
 pub enum UnaryKind {
     Negate,
 }
 
+#[derive(Debug)]
 pub enum Node {
+    Variable(char),
     Binary {
         kind: BinaryKind,
         lhs: Box<Node>,
@@ -151,6 +156,26 @@ impl<'a> Parser<'a> {
         Ok(Node::ExprStatement { statements })
     }
 
+    // assign = equality ("=" assign)?
+    fn parse_assignment(&mut self) -> Result<Node, ParseError<'a>> {
+        let mut node = self.parse_equality()?;
+
+        if let Some(Token {
+            kind: TokenKind::Punctuation("="),
+            ..
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            node = Node::Binary {
+                kind: BinaryKind::Assign,
+                lhs: Box::new(node),
+                rhs: Box::new(self.parse_assignment()?),
+            };
+        }
+
+        Ok(node)
+    }
+
     // add = mul ("+" mul | "-" mul)*
     fn parse_additive(&mut self) -> Result<Node, ParseError<'a>> {
         let mut node = self.parse_multiplicative()?;
@@ -255,7 +280,7 @@ impl<'a> Parser<'a> {
     }
 
     // stmt = expr-stmt
-    pub fn parse_statement(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_statement(&mut self) -> Result<Node, ParseError<'a>> {
         self.parse_expr_statement()
     }
 
@@ -272,12 +297,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // expr = equality
+    // expr = assign
     fn parse_expression(&mut self) -> Result<Node, ParseError<'a>> {
-        self.parse_equality()
+        self.parse_assignment()
     }
 
-    // primary = "(" expr ")" | num
+    // primary = "(" expr ")" | ident | num
     fn parse_primary(&mut self) -> Result<Node, ParseError<'a>> {
         let Some(token) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -296,6 +321,7 @@ impl<'a> Parser<'a> {
                     _ => Err(self.err_unexpected_token(TokenKind::Punctuation(")"), token.index)),
                 }
             }
+            TokenKind::Identifier(identifier) => Ok(Node::Variable(identifier)),
             TokenKind::Numeric(num) => Ok(Node::Numeric(num)),
             _ => Err(self.err_expected_expression(token.index)),
         }

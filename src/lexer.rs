@@ -2,6 +2,7 @@ use std::{iter::Peekable, str::CharIndices};
 
 #[derive(Debug)]
 pub enum TokenKind<'a> {
+    Identifier(char),
     Punctuation(&'a str),
     Numeric(i64),
     EOF,
@@ -13,6 +14,7 @@ impl<'a> std::fmt::Display for TokenKind<'a> {
             TokenKind::Punctuation(c) => write!(f, "{c}"),
             TokenKind::Numeric(n) => write!(f, "{n}"),
             TokenKind::EOF => write!(f, "End Of File"),
+            TokenKind::Identifier(name) => write!(f, "identifier: {name}"),
         }
     }
 }
@@ -103,6 +105,13 @@ impl<'a> Lexer<'a> {
                         kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
                         index,
                         length,
+                    });
+                }
+                'a'..='z' => {
+                    tokens.push(Token {
+                        kind: TokenKind::Identifier(c),
+                        index,
+                        length: 1,
                     });
                 }
                 _ => {

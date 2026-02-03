@@ -35,6 +35,13 @@ fn test_unary() {
 }
 
 #[test]
+fn test_variables() {
+    assert_exit_status("a=3; a;", 3);
+    assert_exit_status("a=3; z = 5; a +z;", 8);
+    assert_exit_status("a = b = 3; a + b;", 6);
+}
+
+#[test]
 fn test_comparison_operators() {
     assert_exit_status("0==1;", 0);
     assert_exit_status("42==42;", 1);
