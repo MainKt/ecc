@@ -16,7 +16,11 @@ impl<'a> CodeGen<'a> {
     }
 
     pub fn generate_assembly(mut self, node: &Node) -> Vec<Cow<'a, str>> {
+        self.instructions.push("  .globl main".into());
+        self.instructions.push("main:".into());
         self.traverse(&node);
+        self.instructions.push("  ret".into());
+
         self.instructions
     }
 

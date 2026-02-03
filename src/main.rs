@@ -21,13 +21,8 @@ fn main() {
         Err(err) => util::errx(&format!("{err}")),
     };
 
-    println!("  .globl main");
-    println!("main:");
-
     let code_gen = CodeGen::new();
     for instruction in code_gen.generate_assembly(&ast) {
         println!("{instruction }")
     }
-
-    println!("  ret");
 }
