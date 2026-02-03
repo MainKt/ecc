@@ -119,7 +119,7 @@ impl<'a> std::fmt::Display for ParseError<'a> {
         match self.kind {
             ParseErrorKind::ExtraToken { index } => {
                 writeln!(f, "{}", self.input)?;
-                writeln!(f, "{:>width$}^", "", width = index)?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "extra token")
             }
             ParseErrorKind::UnexpectedToken {
@@ -127,12 +127,12 @@ impl<'a> std::fmt::Display for ParseError<'a> {
                 index,
             } => {
                 writeln!(f, "{}", self.input)?;
-                writeln!(f, "{:>width$}^", "", width = index)?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "expected `{expected}'")
             }
             ParseErrorKind::ExpectedExpression { index } => {
                 writeln!(f, "{}", self.input)?;
-                writeln!(f, "{:>width$}^", "", width = index)?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "expected an expression")
             }
             ParseErrorKind::UnusualEndOfTokens => {

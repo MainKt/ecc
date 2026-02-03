@@ -53,7 +53,7 @@ impl<'a> std::fmt::Display for LexError<'a> {
         match self.kind {
             LexErrorKind::InvalidToken { index } => {
                 writeln!(f, "{}", self.input)?;
-                writeln!(f, "{:>width$}^", "", width = index)?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "invalid token")
             }
         }
