@@ -3,6 +3,7 @@ use std::{iter::Peekable, str::CharIndices};
 #[derive(Debug)]
 pub enum TokenKind<'a> {
     Identifier(&'a str),
+    Keyword(&'a str),
     Punctuation(&'a str),
     Numeric(i64),
     EOF,
@@ -14,7 +15,8 @@ impl<'a> std::fmt::Display for TokenKind<'a> {
             TokenKind::Punctuation(c) => write!(f, "{c}"),
             TokenKind::Numeric(n) => write!(f, "{n}"),
             TokenKind::EOF => write!(f, "End Of File"),
-            TokenKind::Identifier(name) => write!(f, "identifier: {name}"),
+            TokenKind::Identifier(name) => write!(f, "{name}"),
+            TokenKind::Keyword(keyword) => write!(f, "{keyword}"),
         }
     }
 }
@@ -116,8 +118,15 @@ impl<'a> Lexer<'a> {
                         length += 1;
                     }
 
+                    let input = &self.input[index..index + length];
+                    let kind = if is_keyword(input) {
+                        TokenKind::Keyword(input)
+                    } else {
+                        TokenKind::Identifier(input)
+                    };
+
                     tokens.push(Token {
-                        kind: TokenKind::Identifier(&self.input[index..index + length]),
+                        kind,
                         index,
                         length,
                     });
@@ -156,4 +165,8 @@ fn is_identifier_head(c: char) -> bool {
 
 fn is_valid_identifier_tail(c: char) -> bool {
     is_identifier_head(c) || matches!(c, '0'..'9')
+}
+
+fn is_keyword(s: &str) -> bool {
+    s == "return"
 }

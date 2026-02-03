@@ -18,6 +18,25 @@ pub enum BinaryKind {
 #[derive(Debug)]
 pub enum UnaryKind {
     Negate,
+    Return,
+}
+
+#[derive(Debug)]
+pub enum Node<'a> {
+    Variable(Rc<RefCell<Object<'a>>>),
+    Binary {
+        kind: BinaryKind,
+        lhs: Box<Node<'a>>,
+        rhs: Box<Node<'a>>,
+    },
+    Unary {
+        kind: UnaryKind,
+        lhs: Box<Node<'a>>,
+    },
+    ExprStatement {
+        statements: Vec<Node<'a>>,
+    },
+    Numeric(i64),
 }
 
 #[derive(Debug)]
@@ -46,7 +65,7 @@ impl<'a> Function<'a> {
         self.statements = statements;
     }
 
-    pub fn node(self) -> Node<'a> {
+    pub fn ast(self) -> Node<'a> {
         Node::ExprStatement {
             statements: self.statements,
         }
@@ -68,24 +87,6 @@ impl<'a> Function<'a> {
     pub fn stack_size(&mut self) -> usize {
         self.offset.next_multiple_of(16)
     }
-}
-
-#[derive(Debug)]
-pub enum Node<'a> {
-    Variable(Rc<RefCell<Object<'a>>>),
-    Binary {
-        kind: BinaryKind,
-        lhs: Box<Node<'a>>,
-        rhs: Box<Node<'a>>,
-    },
-    Unary {
-        kind: UnaryKind,
-        lhs: Box<Node<'a>>,
-    },
-    ExprStatement {
-        statements: Vec<Node<'a>>,
-    },
-    Numeric(i64),
 }
 
 pub struct Parser<'a> {
@@ -333,11 +334,37 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // stmt = expr-stmt
+    // stmt = "return" expr ";" | expr-stmt
     fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
+        if let Some(Token {
+            kind: TokenKind::Keyword("return"),
+            ..
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            let node = Node::Unary {
+                kind: UnaryKind::Return,
+                lhs: Box::new(self.parse_expression()?),
+            };
+
+            let Some(token) = self.tokens.next() else {
+                return Err(self.err_unusual_end_of_tokens());
+            };
+            let Token {
+                kind: TokenKind::Punctuation(";"),
+                ..
+            } = token
+            else {
+                return Err(self.err_unexpected_token(TokenKind::Punctuation(";"), token.index));
+            };
+
+            return Ok(node);
+        }
+
         self.parse_expr_statement()
     }
 
+    // expr-stmt = expr ";"
     fn parse_expr_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let node = self.parse_expression()?;
 

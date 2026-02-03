@@ -22,10 +22,10 @@ impl<'a> CodeGen<'a> {
 
     pub fn generate_assembly(mut self, mut f: Function) -> Vec<Cow<'a, str>> {
         self.stack_size = f.stack_size();
-        self.generate_assembly_for_node(&f.node())
+        self.generate_assembly_for_ast(&f.ast())
     }
 
-    fn generate_assembly_for_node(mut self, node: &Node) -> Vec<Cow<'a, str>> {
+    fn generate_assembly_for_ast(mut self, node: &Node) -> Vec<Cow<'a, str>> {
         self.instructions.push("  .globl main".into());
         self.instructions.push("main:".into());
 
@@ -37,6 +37,7 @@ impl<'a> CodeGen<'a> {
         self.traverse(&node);
         assert!(self.depth == 0);
 
+        self.instructions.push(".L.return:".into());
         self.instructions.push("  mov %rbp, %rsp".into());
         self.instructions.push("  pop %rbp".into());
         self.instructions.push("  ret".into());
@@ -126,6 +127,7 @@ impl<'a> CodeGen<'a> {
                 self.traverse(lhs);
                 match kind {
                     UnaryKind::Negate => self.instructions.push("  neg %rax".into()),
+                    UnaryKind::Return => self.instructions.push("  jmp .L.return".into()),
                 }
             }
             Node::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax").into()),
