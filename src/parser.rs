@@ -21,6 +21,8 @@ pub enum BinaryKind {
 #[derive(Debug)]
 pub enum UnaryKind {
     Negate,
+    Address,
+    Deref,
     Return,
 }
 
@@ -96,6 +98,8 @@ impl<'a> Function<'a> {
     }
 
     pub fn get_or_allocate_local(&mut self, name: &'a str) -> Rc<RefCell<Object<'a>>> {
+        // NOTE: assigning offsets this way leads to a stack locals order
+        // that is inverted compared to chibicc
         let object = self.locals.entry(name).or_insert_with(|| {
             self.offset += 8;
 
@@ -554,23 +558,43 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // unary = ("*" | "-" unary | primary
+    // unary = ("*" | "-" | "*" | "&" ) unary
+    //         | primary
     fn parse_unary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        let Some(token) = self.tokens.peek() else {
+        let Some(&Token { ref kind, info }) = self.tokens.peek() else {
             return Err(self.err_unusual_end_of_tokens());
         };
 
-        match token.kind {
+        match kind {
             TokenKind::Punctuation("+") => {
                 self.tokens.next();
                 self.parse_unary()
             }
             TokenKind::Punctuation("-") => {
-                let info = token.info;
                 self.tokens.next();
                 Ok(Node {
                     kind: NodeKind::Unary {
                         kind: UnaryKind::Negate,
+                        lhs: Box::new(self.parse_unary()?),
+                    },
+                    info,
+                })
+            }
+            TokenKind::Punctuation("&") => {
+                self.tokens.next();
+                Ok(Node {
+                    kind: NodeKind::Unary {
+                        kind: UnaryKind::Address,
+                        lhs: Box::new(self.parse_unary()?),
+                    },
+                    info,
+                })
+            }
+            TokenKind::Punctuation("*") => {
+                self.tokens.next();
+                Ok(Node {
+                    kind: NodeKind::Unary {
+                        kind: UnaryKind::Deref,
                         lhs: Box::new(self.parse_unary()?),
                     },
                     info,
@@ -584,10 +608,9 @@ impl<'a> Parser<'a> {
     fn parse_multiplicative(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_unary()?;
 
-        while let Some(token) = self.tokens.peek() {
-            match token.kind {
+        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+            match kind {
                 TokenKind::Punctuation("*") => {
-                    let info = token.info;
                     self.tokens.next();
                     node = Node {
                         kind: NodeKind::Binary {
@@ -599,7 +622,6 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::Punctuation("/") => {
-                    let info = token.info;
                     self.tokens.next();
                     node = Node {
                         kind: NodeKind::Binary {

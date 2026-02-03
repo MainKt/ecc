@@ -90,14 +90,19 @@ impl<'a> CodeGen<'a> {
     }
 
     fn generate_address(&mut self, Node { kind, info }: &Node) -> Result<(), CodeGenError<'a>> {
-        let NodeKind::Variable(object) = kind else {
-            return Err(self.err_non_lvalue_assigment(info.index));
-        };
+        match kind {
+            NodeKind::Variable(object) => {
+                self.instructions
+                    .push(format!("  lea {}(%rbp), %rax", object.borrow().offset).into());
 
-        self.instructions
-            .push(format!("  lea {}(%rbp), %rax", object.borrow().offset).into());
-
-        Ok(())
+                Ok(())
+            }
+            NodeKind::Unary {
+                kind: UnaryKind::Deref,
+                lhs,
+            } => self.traverse(lhs),
+            _ => Err(self.err_non_lvalue_assigment(info.index)),
+        }
     }
 
     fn traverse_children(&mut self, rhs: &Node, lhs: &Node) -> Result<(), CodeGenError<'a>> {
@@ -161,13 +166,21 @@ impl<'a> CodeGen<'a> {
                     self.instructions.push("  mov %rax, (%rdi)".into())
                 }
             },
-            NodeKind::Unary { kind, lhs } => {
-                self.traverse(lhs)?;
-                match kind {
-                    UnaryKind::Negate => self.instructions.push("  neg %rax".into()),
-                    UnaryKind::Return => self.instructions.push("  jmp .L.return".into()),
+            NodeKind::Unary { kind, lhs } => match kind {
+                UnaryKind::Negate => {
+                    self.traverse(lhs)?;
+                    self.instructions.push("  neg %rax".into())
                 }
-            }
+                UnaryKind::Return => {
+                    self.traverse(lhs)?;
+                    self.instructions.push("  jmp .L.return".into())
+                }
+                UnaryKind::Address => self.generate_address(lhs)?,
+                UnaryKind::Deref => {
+                    self.traverse(lhs)?;
+                    self.instructions.push("  mov (%rax), %rax".into())
+                }
+            },
             NodeKind::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax").into()),
             NodeKind::ExprStatement { statements } => {
                 statements

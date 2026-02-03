@@ -14,6 +14,26 @@ fn test_basic_arithmetic() {
 }
 
 #[test]
+fn test_address_of_and_deref() {
+    assert_exit_status("{ x=3; return *&x; }", 3);
+    assert_exit_status("{ x=3; y=&x; z=&y; return **z; }", 3);
+    assert_exit_status("{ x=3; y=&x; *y=5; return x; }", 5);
+
+    // NOTE: commented tests are from chibicc where stack locals is inverted
+    // assert_exit_status("{ x=3; y=5; return *(&x+8); }", 5);
+    assert_exit_status("{ x=3; y=5; return *(&x-8); }", 5);
+
+    // assert_exit_status("{ x=3; y=5; return *(&y-8); }", 3);
+    assert_exit_status("{ x=3; y=5; return *(&y+8); }", 3);
+
+    // assert_exit_status("{ x=3; y=5; *(&x+8)=7; return y; }", 7);
+    assert_exit_status("{ x=3; y=5; *(&x-8)=7; return y; }", 7);
+
+    // assert_exit_status("{ x=3; y=5; *(&y-8)=7; return x; }", 7);
+    assert_exit_status("{ x=3; y=5; *(&y+8)=7; return x; }", 7);
+}
+
+#[test]
 fn test_basic_arithmetic_with_spaces() {
     assert_exit_status("{return 12 + 34 - 5;}", 41);
     assert_exit_status("{return 12+34 - 5;}", 41);
@@ -96,12 +116,15 @@ fn test_if_statement() {
 
 #[test]
 fn test_for_statement() {
-    assert_exit_status(r"{
+    assert_exit_status(
+        r"{
         for (;;) {
             return 3;
         }
         return 5;
-    }", 3);
+    }",
+        3,
+    );
     assert_exit_status(
         "{ i = 0; j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
         55,
@@ -110,13 +133,16 @@ fn test_for_statement() {
 
 #[test]
 fn test_while_loop() {
-    assert_exit_status(r"{
+    assert_exit_status(
+        r"{
         i = 0;
         while (i < 10) {
             i = i + 1;
         }
         return i;
-    }", 10);
+    }",
+        10,
+    );
 }
 
 fn assert_exit_status(program: &str, expected_status: i32) {
@@ -148,6 +174,8 @@ fn assert_exit_status(program: &str, expected_status: i32) {
             .status()
             .expect("failed to assemble")
             .code(),
-        Some(expected_status)
+        Some(expected_status),
+        "assembly:\n---------\n{}\n---------\n",
+        String::from_utf8(asm_out.stdout).unwrap()
     );
 }
