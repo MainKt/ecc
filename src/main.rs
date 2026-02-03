@@ -22,7 +22,7 @@ fn main() {
     };
 
     let code_gen = CodeGen::new();
-    for instruction in code_gen.generate_assembly(ast) {
+    for instruction in code_gen.generate_assembly(&ast) {
         println!("{instruction }")
     }
 }

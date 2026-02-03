@@ -23,6 +23,7 @@ pub enum UnaryKind {
 
 #[derive(Debug)]
 pub enum Node<'a> {
+    Numeric(i64),
     Variable(Rc<RefCell<Object<'a>>>),
     Binary {
         kind: BinaryKind,
@@ -36,7 +37,9 @@ pub enum Node<'a> {
     ExprStatement {
         statements: Vec<Node<'a>>,
     },
-    Numeric(i64),
+    Block {
+        compound_statements: Vec<Node<'a>>,
+    },
 }
 
 #[derive(Debug)]
@@ -47,7 +50,7 @@ pub struct Object<'a> {
 
 #[derive(Debug)]
 pub struct Function<'a> {
-    statements: Vec<Node<'a>>,
+    body: Node<'a>,
     locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
     offset: usize,
 }
@@ -55,20 +58,18 @@ pub struct Function<'a> {
 impl<'a> Function<'a> {
     pub fn new() -> Self {
         Self {
-            statements: vec![],
             locals: HashMap::new(),
             offset: 0,
+            body: Node::Numeric(0),
         }
     }
 
-    pub fn add_statements(&mut self, statements: Vec<Node<'a>>) {
-        self.statements = statements;
+    pub fn set_body(&mut self, node: Node<'a>) {
+        self.body = node;
     }
 
-    pub fn ast(self) -> Node<'a> {
-        Node::ExprStatement {
-            statements: self.statements,
-        }
+    pub fn body(&self) -> &Node<'a> {
+        &self.body
     }
 
     pub fn get_or_allocate_local(&mut self, name: &'a str) -> Rc<RefCell<Object<'a>>> {
@@ -84,7 +85,7 @@ impl<'a> Function<'a> {
         Rc::clone(object)
     }
 
-    pub fn stack_size(&mut self) -> usize {
+    pub fn stack_size(&self) -> usize {
         self.offset.next_multiple_of(16)
     }
 }
@@ -175,38 +176,25 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn err_extra_token(&self, index: usize) -> ParseError<'a> {
+    fn _err_extra_token(&self, index: usize) -> ParseError<'a> {
         ParseError {
             input: self.input,
             kind: ParseErrorKind::ExtraToken { index },
         }
     }
 
-    // program = stmt*
+    // program = compound-stmt*
     pub fn parse(mut self) -> Result<Function<'a>, ParseError<'a>> {
-        let mut statements = vec![];
-        let mut got_eof = false;
+        let Some(Token {
+            kind: TokenKind::Punctuation("{"),
+            ..
+        }) = self.tokens.next()
+        else {
+            return Err(self.err_unexpected_token(TokenKind::Punctuation("{"), 0));
+        };
 
-        while let Some(Token { kind, .. }) = self.tokens.peek() {
-            match kind {
-                TokenKind::EOF => {
-                    self.tokens.next();
-                    got_eof = true;
-                    break;
-                }
-                _ => statements.push(self.parse_statement()?),
-            }
-        }
-
-        if !got_eof {
-            return Err(self.err_unusual_end_of_tokens());
-        }
-
-        if let Some(Token { index, .. }) = self.tokens.next() {
-            return Err(self.err_extra_token(index));
-        }
-
-        self.function.add_statements(statements);
+        let block = self.parse_compound_statement()?;
+        self.function.set_body(block);
 
         Ok(self.function)
     }
@@ -334,34 +322,60 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // stmt = "return" expr ";" | expr-stmt
+    // stmt = "return" expr ";" | "{" compound-stmt | expr-stmt
     fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        if let Some(Token {
-            kind: TokenKind::Keyword("return"),
-            ..
-        }) = self.tokens.peek()
-        {
-            self.tokens.next();
-            let node = Node::Unary {
-                kind: UnaryKind::Return,
-                lhs: Box::new(self.parse_expression()?),
-            };
-
-            let Some(token) = self.tokens.next() else {
-                return Err(self.err_unusual_end_of_tokens());
-            };
-            let Token {
-                kind: TokenKind::Punctuation(";"),
+        match self.tokens.peek() {
+            Some(Token {
+                kind: TokenKind::Keyword("return"),
                 ..
-            } = token
-            else {
-                return Err(self.err_unexpected_token(TokenKind::Punctuation(";"), token.index));
-            };
+            }) => {
+                self.tokens.next();
 
-            return Ok(node);
+                let node = Node::Unary {
+                    kind: UnaryKind::Return,
+                    lhs: Box::new(self.parse_expression()?),
+                };
+
+                let Some(token) = self.tokens.next() else {
+                    return Err(self.err_unusual_end_of_tokens());
+                };
+
+                let Token {
+                    kind: TokenKind::Punctuation(";"),
+                    ..
+                } = token
+                else {
+                    return Err(self.err_unexpected_token(TokenKind::Punctuation(";"), token.index));
+                };
+
+                Ok(node)
+            }
+            Some(Token {
+                kind: TokenKind::Punctuation("{"),
+                ..
+            }) => {
+                self.tokens.next();
+                self.parse_compound_statement()
+            }
+            _ => self.parse_expr_statement(),
+        }
+    }
+
+    // compound-stmt = stmt* "}"
+    fn parse_compound_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
+        let mut statements = vec![];
+
+        while let Some(Token { kind, .. }) = self.tokens.peek() {
+            if let TokenKind::Punctuation("}") = kind {
+                self.tokens.next();
+                break;
+            }
+            statements.push(self.parse_statement()?);
         }
 
-        self.parse_expr_statement()
+        Ok(Node::Block {
+            compound_statements: statements,
+        })
     }
 
     // expr-stmt = expr ";"

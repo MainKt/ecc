@@ -20,9 +20,9 @@ impl<'a> CodeGen<'a> {
         }
     }
 
-    pub fn generate_assembly(mut self, mut f: Function) -> Vec<Cow<'a, str>> {
+    pub fn generate_assembly(mut self, f: &Function) -> Vec<Cow<'a, str>> {
         self.stack_size = f.stack_size();
-        self.generate_assembly_for_ast(&f.ast())
+        self.generate_assembly_for_ast(f.body())
     }
 
     fn generate_assembly_for_ast(mut self, node: &Node) -> Vec<Cow<'a, str>> {
@@ -35,7 +35,6 @@ impl<'a> CodeGen<'a> {
             .push(format!("  sub ${}, %rsp", self.stack_size).into());
 
         self.traverse(&node);
-        assert!(self.depth == 0);
 
         self.instructions.push(".L.return:".into());
         self.instructions.push("  mov %rbp, %rsp".into());
@@ -141,6 +140,11 @@ impl<'a> CodeGen<'a> {
                 self.generate_address(node);
                 self.instructions.push("  mov (%rax), %rax".into())
             }
+            Node::Block {
+                compound_statements,
+            } => compound_statements
+                .iter()
+                .for_each(|statement| self.traverse(statement)),
         }
     }
 }
