@@ -1,6 +1,6 @@
 use std::{iter::Peekable, str::CharIndices};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
     Identifier(&'a str),
     Keyword(&'a str),
@@ -168,5 +168,5 @@ fn is_valid_identifier_tail(c: char) -> bool {
 }
 
 fn is_keyword(s: &str) -> bool {
-    s == "return"
+    ["return", "if", "else"].iter().any(|&keyword| s == keyword)
 }

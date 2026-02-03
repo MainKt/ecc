@@ -84,6 +84,16 @@ fn test_comparison_operators() {
     assert_exit_status("{1>=2;}", 0);
 }
 
+#[test]
+fn test_if_statement() {
+    assert_exit_status("{ if (0) return 2; return 3; }", 3);
+    assert_exit_status("{ if (1-1) return 2; return 3; }", 3);
+    assert_exit_status("{ if (1) return 2; return 3; }", 2);
+    assert_exit_status("{ if (2-1) return 2; return 3; }", 2);
+    assert_exit_status("{ if (0) { 1; 2; return 3; } else { return 4; } }", 4);
+    assert_exit_status("{ if (1) { 1; 2; return 3; } else { return 4; } }", 3);
+}
+
 fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
     let asm_out = Command::new(compiler)

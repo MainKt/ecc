@@ -40,6 +40,11 @@ pub enum Node<'a> {
     Block {
         compound_statements: Vec<Node<'a>>,
     },
+    If {
+        condition: Box<Node<'a>>,
+        then_block: Box<Node<'a>>,
+        else_block: Option<Box<Node<'a>>>,
+    },
 }
 
 #[derive(Debug)]
@@ -163,6 +168,18 @@ impl<'a> Parser<'a> {
         ParseError {
             input: self.input,
             kind: ParseErrorKind::ExpectedExpression { index },
+        }
+    }
+
+    fn expect_next(&mut self, kind: TokenKind<'a>) -> Result<(), ParseError<'a>> {
+        let Some(token) = self.tokens.next() else {
+            return Err(self.err_unusual_end_of_tokens());
+        };
+
+        if kind == token.kind {
+            Ok(())
+        } else {
+            Err(self.err_unexpected_token(kind, token.index))
         }
     }
 
@@ -322,7 +339,10 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // stmt = "return" expr ";" | "{" compound-stmt | expr-stmt
+    // stmt = "return" expr ";"
+    //      | "if" "(" expr ")" stmt ("else" stmt)?
+    //      | "{" compound-stmt
+    //      | expr-stmt
     fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         match self.tokens.peek() {
             Some(Token {
@@ -336,19 +356,36 @@ impl<'a> Parser<'a> {
                     lhs: Box::new(self.parse_expression()?),
                 };
 
-                let Some(token) = self.tokens.next() else {
-                    return Err(self.err_unusual_end_of_tokens());
-                };
-
-                let Token {
-                    kind: TokenKind::Punctuation(";"),
-                    ..
-                } = token
-                else {
-                    return Err(self.err_unexpected_token(TokenKind::Punctuation(";"), token.index));
-                };
+                self.expect_next(TokenKind::Punctuation(";"))?;
 
                 Ok(node)
+            }
+            Some(Token {
+                kind: TokenKind::Keyword("if"),
+                ..
+            }) => {
+                self.tokens.next();
+                self.expect_next(TokenKind::Punctuation("("))?;
+                let condition = Box::new(self.parse_expression()?);
+                self.expect_next(TokenKind::Punctuation(")"))?;
+                let then_block = Box::new(self.parse_statement()?);
+
+                let else_block = if let Some(Token {
+                    kind: TokenKind::Keyword("else"),
+                    ..
+                }) = self.tokens.peek()
+                {
+                    self.tokens.next();
+                    Some(Box::new(self.parse_statement()?))
+                } else {
+                    None
+                };
+
+                Ok(Node::If {
+                    condition,
+                    then_block,
+                    else_block,
+                })
             }
             Some(Token {
                 kind: TokenKind::Punctuation("{"),
@@ -392,14 +429,9 @@ impl<'a> Parser<'a> {
         };
 
         let node = self.parse_expression()?;
-        let Some(token) = self.tokens.next() else {
-            return Err(self.err_unusual_end_of_tokens());
-        };
 
-        match token.kind {
-            TokenKind::Punctuation(";") => Ok(node),
-            _ => Err(self.err_unexpected_token(TokenKind::Punctuation(";"), token.index)),
-        }
+        self.expect_next(TokenKind::Punctuation(";"))?;
+        Ok(node)
     }
 
     // expr = assign
@@ -416,15 +448,8 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::Punctuation("(") => {
                 let node = self.parse_expression()?;
-
-                let Some(token) = self.tokens.next() else {
-                    return Err(self.err_expected_expression(token.index + token.length));
-                };
-
-                match token.kind {
-                    TokenKind::Punctuation(")") => Ok(node),
-                    _ => Err(self.err_unexpected_token(TokenKind::Punctuation(")"), token.index)),
-                }
+                self.expect_next(TokenKind::Punctuation(")"))?;
+                Ok(node)
             }
             TokenKind::Identifier(name) => {
                 Ok(Node::Variable(self.function.get_or_allocate_local(name)))

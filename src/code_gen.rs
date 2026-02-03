@@ -9,6 +9,7 @@ pub struct CodeGen<'a> {
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
     stack_size: usize,
+    block_count: usize,
 }
 
 impl<'a> CodeGen<'a> {
@@ -17,7 +18,13 @@ impl<'a> CodeGen<'a> {
             depth: 0,
             instructions: vec![],
             stack_size: 0,
+            block_count: 0,
         }
+    }
+
+    fn next_block_number(&mut self) -> usize {
+        self.block_count += 1;
+        self.block_count
     }
 
     pub fn generate_assembly(mut self, f: &Function) -> Vec<Cow<'a, str>> {
@@ -145,6 +152,25 @@ impl<'a> CodeGen<'a> {
             } => compound_statements
                 .iter()
                 .for_each(|statement| self.traverse(statement)),
+            Node::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                let block = self.next_block_number();
+                self.traverse(condition);
+                self.instructions.push("  cmp $0, %rax".into());
+                self.instructions
+                    .push(format!("  je .L.else.{block}").into());
+                self.traverse(then_block); // stmt
+                self.instructions
+                    .push(format!("  jmp .L.end.{block}").into());
+                self.instructions.push(format!(".L.else.{block}:").into());
+                if let Some(else_block) = else_block {
+                    self.traverse(else_block); // stmt
+                }
+                self.instructions.push(format!(".L.end.{block}:").into());
+            }
         }
     }
 }
