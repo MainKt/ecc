@@ -175,20 +175,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn err_unusual_end_of_tokens(&self) -> ParseError<'a> {
-        ParseError {
-            input: "",
-            kind: ParseErrorKind::UnusualEndOfTokens,
-        }
-    }
-
-    fn err_expected_expression(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::ExpectedExpression { index },
-        }
-    }
-
     fn expect_next(&mut self, kind: TokenKind<'a>) -> Result<(), ParseError<'a>> {
         let Some(token) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -198,23 +184,6 @@ impl<'a> Parser<'a> {
             Ok(())
         } else {
             Err(self.err_unexpected_token(kind, token.info.index))
-        }
-    }
-
-    fn err_unexpected_token(&self, expected_kind: TokenKind<'a>, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::UnexpectedToken {
-                expected: expected_kind,
-                index,
-            },
-        }
-    }
-
-    fn _err_extra_token(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::ExtraToken { index },
         }
     }
 
@@ -646,5 +615,36 @@ impl<'a> Parser<'a> {
         }
 
         Ok(node)
+    }
+
+    fn err_unusual_end_of_tokens(&self) -> ParseError<'a> {
+        ParseError {
+            input: "",
+            kind: ParseErrorKind::UnusualEndOfTokens,
+        }
+    }
+
+    fn err_expected_expression(&self, index: usize) -> ParseError<'a> {
+        ParseError {
+            input: self.input,
+            kind: ParseErrorKind::ExpectedExpression { index },
+        }
+    }
+
+    fn err_unexpected_token(&self, expected_kind: TokenKind<'a>, index: usize) -> ParseError<'a> {
+        ParseError {
+            input: self.input,
+            kind: ParseErrorKind::UnexpectedToken {
+                expected: expected_kind,
+                index,
+            },
+        }
+    }
+
+    fn _err_extra_token(&self, index: usize) -> ParseError<'a> {
+        ParseError {
+            input: self.input,
+            kind: ParseErrorKind::ExtraToken { index },
+        }
     }
 }

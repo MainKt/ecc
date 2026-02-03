@@ -72,10 +72,6 @@ impl<'a> Lexer<'a> {
         self.input
     }
 
-    pub fn err_invalid_token(self, index: usize) -> LexError<'a> {
-        LexError::new(self.input, LexErrorKind::InvalidToken { index })
-    }
-
     fn punctuation_len(&self, index: usize) -> Option<usize> {
         ["==", "!=", "<=", ">="]
             .iter()
@@ -153,6 +149,10 @@ impl<'a> Lexer<'a> {
         });
 
         Ok(tokens)
+    }
+
+    pub fn err_invalid_token(self, index: usize) -> LexError<'a> {
+        LexError::new(self.input, LexErrorKind::InvalidToken { index })
     }
 }
 
