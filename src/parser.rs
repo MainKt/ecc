@@ -134,17 +134,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_relational(&mut self) -> Result<Node, ParseError<'a>> {
-        todo!()
-    }
-
-    pub fn parse_equality(&mut self) -> Result<Node, ParseError<'a>> {
-        let node = self.parse_relational()?;
-
-        Ok(node)
-    }
-
-    fn parse_expression(&mut self) -> Result<Node, ParseError<'a>> {
+    // add = mul ("+" mul | "-" mul)*
+    fn parse_additive(&mut self) -> Result<Node, ParseError<'a>> {
         let mut node = self.parse_multiplicative()?;
 
         while let Some(token) = self.tokens.peek() {
@@ -172,6 +163,86 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
+    // relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+    fn parse_relational(&mut self) -> Result<Node, ParseError<'a>> {
+        let mut node = self.parse_additive()?;
+
+        while let Some(token) = self.tokens.peek() {
+            match token.kind {
+                TokenKind::Punctuation("<") => {
+                    self.tokens.next();
+                    node = Node::Binary {
+                        kind: BinaryKind::LessThan,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_additive()?),
+                    };
+                }
+                TokenKind::Punctuation("<=") => {
+                    self.tokens.next();
+                    node = Node::Binary {
+                        kind: BinaryKind::LessThanEqual,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_additive()?),
+                    };
+                }
+                TokenKind::Punctuation(">") => {
+                    self.tokens.next();
+                    node = Node::Binary {
+                        kind: BinaryKind::LessThan,
+                        lhs: Box::new(self.parse_additive()?),
+                        rhs: Box::new(node),
+                    };
+                }
+                TokenKind::Punctuation(">=") => {
+                    self.tokens.next();
+                    node = Node::Binary {
+                        kind: BinaryKind::LessThanEqual,
+                        lhs: Box::new(self.parse_additive()?),
+                        rhs: Box::new(node),
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    // equality = relational ("==" relational | "!=" relational)*
+    fn parse_equality(&mut self) -> Result<Node, ParseError<'a>> {
+        let mut node = self.parse_relational()?;
+
+        while let Some(token) = self.tokens.peek() {
+            match token.kind {
+                TokenKind::Punctuation("==") => {
+                    self.tokens.next();
+                    node = Node::Binary {
+                        kind: BinaryKind::Equal,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_relational()?),
+                    };
+                }
+                TokenKind::Punctuation("!=") => {
+                    self.tokens.next();
+                    node = Node::Binary {
+                        kind: BinaryKind::NotEqual,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_relational()?),
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    // expr = equality
+    fn parse_expression(&mut self) -> Result<Node, ParseError<'a>> {
+        self.parse_equality()
+    }
+
+    // primary = "(" expr ")" | num
     fn parse_primary(&mut self) -> Result<Node, ParseError<'a>> {
         let Some(token) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -195,6 +266,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // unary = ("*" | "-" unary | primary
     fn parse_unary(&mut self) -> Result<Node, ParseError<'a>> {
         let Some(token) = self.tokens.peek() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -216,6 +288,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // mul = unary ("*" unary | "/" unary)*
     fn parse_multiplicative(&mut self) -> Result<Node, ParseError<'a>> {
         let mut node = self.parse_unary()?;
 

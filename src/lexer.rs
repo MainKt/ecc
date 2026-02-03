@@ -71,10 +71,15 @@ impl<'a> Lexer<'a> {
         LexError::new(self.input, LexErrorKind::InvalidToken { index })
     }
 
-    fn multichar_punctuation_len(&self, index: usize) -> Option<usize> {
+    fn punctuation_len(&self, index: usize) -> Option<usize> {
         ["==", "!=", "<=", ">="]
             .iter()
             .find_map(|p| self.input[index..].starts_with(p).then_some(p.len()))
+            .or_else(|| {
+                self.input[index..]
+                    .starts_with(|c: char| c.is_ascii_punctuation())
+                    .then_some(1)
+            })
     }
 
     pub fn tokenize(mut self) -> Result<Vec<Token<'a>>, LexError<'a>> {
@@ -100,15 +105,12 @@ impl<'a> Lexer<'a> {
                         length,
                     });
                 }
-                c if c.is_ascii_punctuation() => {
-                    tokens.push(Token {
-                        kind: TokenKind::Punctuation(&self.input[index..index + 1]),
-                        index,
-                        length: 1,
-                    });
-                }
                 _ => {
-                    if let Some(length) = self.multichar_punctuation_len(index) {
+                    if let Some(length) = self.punctuation_len(index) {
+                        for _ in 1..length {
+                            self.chars.next();
+                        }
+
                         tokens.push(Token {
                             kind: TokenKind::Punctuation(&self.input[index..index + length]),
                             index,
