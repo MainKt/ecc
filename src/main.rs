@@ -2,7 +2,6 @@ use ecc::{code_gen::CodeGen, lexer::Lexer, parser::Parser, util};
 
 fn main() {
     let mut args = std::env::args();
-
     if args.len() != 2 {
         util::errx("invalid number of arguments");
     }
@@ -17,7 +16,7 @@ fn main() {
     };
 
     let parser = Parser::new(&input, tokens);
-    let node = match parser.parse() {
+    let ast = match parser.parse() {
         Ok(node) => node,
         Err(err) => util::errx(&format!("{err}")),
     };
@@ -26,7 +25,7 @@ fn main() {
     println!("main:");
 
     let code_gen = CodeGen::new();
-    for instruction in code_gen.generate_assembly(&node) {
+    for instruction in code_gen.generate_assembly(&ast) {
         println!("{instruction }")
     }
 

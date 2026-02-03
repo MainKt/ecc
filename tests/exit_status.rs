@@ -34,6 +34,26 @@ fn test_unary() {
     assert_exit_status("- - +10", 10);
 }
 
+#[test]
+fn test_comparison_operators() {
+    assert_exit_status("0==1", 0);
+    assert_exit_status("42==42", 1);
+    assert_exit_status("0!=1", 1);
+    assert_exit_status("42!=42", 0);
+    assert_exit_status("0<1", 1);
+    assert_exit_status("1<1", 0);
+    assert_exit_status("2<1", 0);
+    assert_exit_status("0<=1", 1);
+    assert_exit_status("1<=1", 1);
+    assert_exit_status("2<=1", 0);
+    assert_exit_status("1>0", 1);
+    assert_exit_status("1>1", 0);
+    assert_exit_status("1>2", 0);
+    assert_exit_status("1>=0", 1);
+    assert_exit_status("1>=1", 1);
+    assert_exit_status("1>=2", 0);
+}
+
 fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
     let asm_out = Command::new(compiler)

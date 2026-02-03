@@ -59,6 +59,30 @@ impl CodeGen {
                 self.traverse(lhs);
                 self.instructions.push("  neg %rax".into());
             }
+            Node::Equal(lhs, rhs) => {
+                self.traverse_children(rhs, lhs);
+                self.instructions.push("  cmp %rdi, %rax".into());
+                self.instructions.push("  sete %al".into());
+                self.instructions.push("  movzb %al, %rax".into());
+            }
+            Node::NotEqual(lhs, rhs) => {
+                self.traverse_children(rhs, lhs);
+                self.instructions.push("  cmp %rdi, %rax".into());
+                self.instructions.push("  setne %al".into());
+                self.instructions.push("  movzb %al, %rax".into());
+            }
+            Node::LessThan(lhs, rhs) => {
+                self.traverse_children(rhs, lhs);
+                self.instructions.push("  cmp %rdi, %rax".into());
+                self.instructions.push("  setl %al".into());
+                self.instructions.push("  movzb %al, %rax".into());
+            }
+            Node::LessThanEqual(lhs, rhs) => {
+                self.traverse_children(rhs, lhs);
+                self.instructions.push("  cmp %rdi, %rax".into());
+                self.instructions.push("  setle %al".into());
+                self.instructions.push("  movzb %al, %rax".into());
+            }
         }
     }
 }

@@ -8,24 +8,35 @@ pub enum Node {
     Multiply(Box<Node>, Box<Node>),
     Divide(Box<Node>, Box<Node>),
     Negative(Box<Node>),
+    Equal(Box<Node>, Box<Node>),
+    NotEqual(Box<Node>, Box<Node>),
+    LessThan(Box<Node>, Box<Node>),
+    LessThanEqual(Box<Node>, Box<Node>),
     Numeric(i64),
 }
 
 pub struct Parser<'a> {
     input: &'a str,
-    tokens: Peekable<IntoIter<Token>>,
+    tokens: Peekable<IntoIter<Token<'a>>>,
 }
 
-pub enum ParseErrorKind {
-    ExtraToken { index: usize },
-    ExpectedExpression { index: usize },
-    UnexpectedToken { index: usize, expected: TokenKind },
+pub enum ParseErrorKind<'a> {
+    ExtraToken {
+        index: usize,
+    },
+    ExpectedExpression {
+        index: usize,
+    },
+    UnexpectedToken {
+        index: usize,
+        expected: TokenKind<'a>,
+    },
     UnusualEndOfTokens,
 }
 
 pub struct ParseError<'a> {
     input: &'a str,
-    kind: ParseErrorKind,
+    kind: ParseErrorKind<'a>,
 }
 
 impl<'a> std::fmt::Display for ParseError<'a> {
@@ -57,7 +68,7 @@ impl<'a> std::fmt::Display for ParseError<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, tokens: Vec<Token>) -> Self {
+    pub fn new(input: &'a str, tokens: Vec<Token<'a>>) -> Self {
         Self {
             input,
             tokens: tokens.into_iter().peekable(),
@@ -78,7 +89,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn err_unexpected_token(&self, expected_kind: TokenKind, index: usize) -> ParseError<'a> {
+    fn err_unexpected_token(&self, expected_kind: TokenKind<'a>, index: usize) -> ParseError<'a> {
         ParseError {
             input: self.input,
             kind: ParseErrorKind::UnexpectedToken {
@@ -108,16 +119,26 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_relational(&mut self) -> Result<Node, ParseError<'a>> {
+        todo!()
+    }
+
+    pub fn parse_equality(&mut self) -> Result<Node, ParseError<'a>> {
+        let node = self.parse_relational()?;
+
+        Ok(node)
+    }
+
     fn parse_expression(&mut self) -> Result<Node, ParseError<'a>> {
         let mut node = self.parse_multiplicative()?;
 
         while let Some(token) = self.tokens.peek() {
             match token.kind {
-                TokenKind::Punctuation('+') => {
+                TokenKind::Punctuation("+") => {
                     self.tokens.next();
                     node = Node::Add(Box::new(node), Box::new(self.parse_multiplicative()?))
                 }
-                TokenKind::Punctuation('-') => {
+                TokenKind::Punctuation("-") => {
                     self.tokens.next();
                     node = Node::Subtract(Box::new(node), Box::new(self.parse_multiplicative()?))
                 }
@@ -134,7 +155,7 @@ impl<'a> Parser<'a> {
         };
 
         match token.kind {
-            TokenKind::Punctuation('(') => {
+            TokenKind::Punctuation("(") => {
                 let node = self.parse_expression()?;
 
                 let Some(token) = self.tokens.next() else {
@@ -142,8 +163,8 @@ impl<'a> Parser<'a> {
                 };
 
                 match token.kind {
-                    TokenKind::Punctuation(')') => Ok(node),
-                    _ => Err(self.err_unexpected_token(TokenKind::Punctuation(')'), token.index)),
+                    TokenKind::Punctuation(")") => Ok(node),
+                    _ => Err(self.err_unexpected_token(TokenKind::Punctuation(")"), token.index)),
                 }
             }
             TokenKind::Numeric(num) => Ok(Node::Numeric(num)),
@@ -157,11 +178,11 @@ impl<'a> Parser<'a> {
         };
 
         match token.kind {
-            TokenKind::Punctuation('+') => {
+            TokenKind::Punctuation("+") => {
                 self.tokens.next();
                 self.parse_unary()
             }
-            TokenKind::Punctuation('-') => {
+            TokenKind::Punctuation("-") => {
                 self.tokens.next();
                 Ok(Node::Negative(Box::new(self.parse_unary()?)))
             }
@@ -174,11 +195,11 @@ impl<'a> Parser<'a> {
 
         while let Some(token) = self.tokens.peek() {
             match token.kind {
-                TokenKind::Punctuation('*') => {
+                TokenKind::Punctuation("*") => {
                     self.tokens.next();
                     node = Node::Multiply(Box::new(node), Box::new(self.parse_unary()?))
                 }
-                TokenKind::Punctuation('/') => {
+                TokenKind::Punctuation("/") => {
                     self.tokens.next();
                     node = Node::Divide(Box::new(node), Box::new(self.parse_unary()?))
                 }

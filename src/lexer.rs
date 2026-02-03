@@ -1,13 +1,13 @@
 use std::{iter::Peekable, str::CharIndices};
 
 #[derive(Debug)]
-pub enum TokenKind {
-    Punctuation(char),
+pub enum TokenKind<'a> {
+    Punctuation(&'a str),
     Numeric(i64),
     EOF,
 }
 
-impl std::fmt::Display for TokenKind {
+impl<'a> std::fmt::Display for TokenKind<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TokenKind::Punctuation(c) => write!(f, "{c}"),
@@ -18,8 +18,8 @@ impl std::fmt::Display for TokenKind {
 }
 
 #[derive(Debug)]
-pub struct Token {
-    pub kind: TokenKind,
+pub struct Token<'a> {
+    pub kind: TokenKind<'a>,
     pub index: usize,
     pub length: usize,
 }
@@ -71,7 +71,13 @@ impl<'a> Lexer<'a> {
         LexError::new(self.input, LexErrorKind::InvalidToken { index })
     }
 
-    pub fn tokenize(mut self) -> Result<Vec<Token>, LexError<'a>> {
+    fn multichar_punctuation_len(&self, index: usize) -> Option<usize> {
+        ["==", "!=", "<=", ">="]
+            .iter()
+            .find_map(|p| self.input[index..].starts_with(p).then_some(p.len()))
+    }
+
+    pub fn tokenize(mut self) -> Result<Vec<Token<'a>>, LexError<'a>> {
         let mut tokens = vec![];
         while let Some((index, c)) = self.chars.next() {
             match c {
@@ -96,13 +102,21 @@ impl<'a> Lexer<'a> {
                 }
                 c if c.is_ascii_punctuation() => {
                     tokens.push(Token {
-                        kind: TokenKind::Punctuation(c),
+                        kind: TokenKind::Punctuation(&self.input[index..index + 1]),
                         index,
                         length: 1,
                     });
                 }
                 _ => {
-                    return Err(self.err_invalid_token(index));
+                    if let Some(length) = self.multichar_punctuation_len(index) {
+                        tokens.push(Token {
+                            kind: TokenKind::Punctuation(&self.input[index..index + length]),
+                            index,
+                            length,
+                        });
+                    } else {
+                        return Err(self.err_invalid_token(index));
+                    }
                 }
             }
         }
