@@ -378,10 +378,20 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // expr-stmt = expr ";"
+    // expr-stmt = expr? ";"
     fn parse_expr_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        let node = self.parse_expression()?;
+        if let Some(Token {
+            kind: TokenKind::Punctuation(";"),
+            ..
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            return Ok(Node::Block {
+                compound_statements: vec![],
+            });
+        };
 
+        let node = self.parse_expression()?;
         let Some(token) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
         };

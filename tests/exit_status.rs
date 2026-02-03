@@ -60,6 +60,11 @@ fn test_nested_braces() {
 }
 
 #[test]
+fn test_null_blocks() {
+    assert_exit_status("{ ;;; return 5;}", 5);
+}
+
+#[test]
 fn test_comparison_operators() {
     assert_exit_status("{0==1;}", 0);
     assert_exit_status("{42==42;}", 1);
