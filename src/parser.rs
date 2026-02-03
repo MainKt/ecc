@@ -1,4 +1,4 @@
-use std::{iter::Peekable, vec::IntoIter};
+use std::{cell::RefCell, collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
 
 use crate::lexer::{Token, TokenKind};
 
@@ -21,19 +21,69 @@ pub enum UnaryKind {
 }
 
 #[derive(Debug)]
-pub enum Node {
-    Variable(char),
+pub struct Object<'a> {
+    pub name: &'a str,
+    pub offset: isize,
+}
+
+#[derive(Debug)]
+pub struct Function<'a> {
+    statements: Vec<Node<'a>>,
+    locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
+    offset: usize,
+}
+
+impl<'a> Function<'a> {
+    pub fn new() -> Self {
+        Self {
+            statements: vec![],
+            locals: HashMap::new(),
+            offset: 0,
+        }
+    }
+
+    pub fn add_statements(&mut self, statements: Vec<Node<'a>>) {
+        self.statements = statements;
+    }
+
+    pub fn node(self) -> Node<'a> {
+        Node::ExprStatement {
+            statements: self.statements,
+        }
+    }
+
+    pub fn get_or_allocate_local(&mut self, name: &'a str) -> Rc<RefCell<Object<'a>>> {
+        self.offset += 8;
+
+        let object = self.locals.entry(name).or_insert_with(|| {
+            Rc::new(RefCell::new(Object {
+                name,
+                offset: -(self.offset as isize),
+            }))
+        });
+
+        Rc::clone(object)
+    }
+
+    pub fn stack_size(&mut self) -> usize {
+        self.offset.next_multiple_of(16)
+    }
+}
+
+#[derive(Debug)]
+pub enum Node<'a> {
+    Variable(Rc<RefCell<Object<'a>>>),
     Binary {
         kind: BinaryKind,
-        lhs: Box<Node>,
-        rhs: Box<Node>,
+        lhs: Box<Node<'a>>,
+        rhs: Box<Node<'a>>,
     },
     Unary {
         kind: UnaryKind,
-        lhs: Box<Node>,
+        lhs: Box<Node<'a>>,
     },
     ExprStatement {
-        statements: Vec<Node>,
+        statements: Vec<Node<'a>>,
     },
     Numeric(i64),
 }
@@ -41,6 +91,7 @@ pub enum Node {
 pub struct Parser<'a> {
     input: &'a str,
     tokens: Peekable<IntoIter<Token<'a>>>,
+    function: Function<'a>,
 }
 
 pub enum ParseErrorKind<'a> {
@@ -95,6 +146,7 @@ impl<'a> Parser<'a> {
         Self {
             input,
             tokens: tokens.into_iter().peekable(),
+            function: Function::new(),
         }
     }
 
@@ -130,7 +182,7 @@ impl<'a> Parser<'a> {
     }
 
     // program = stmt*
-    pub fn parse(mut self) -> Result<Node, ParseError<'a>> {
+    pub fn parse(mut self) -> Result<Function<'a>, ParseError<'a>> {
         let mut statements = vec![];
         let mut got_eof = false;
 
@@ -153,11 +205,13 @@ impl<'a> Parser<'a> {
             return Err(self.err_extra_token(index));
         }
 
-        Ok(Node::ExprStatement { statements })
+        self.function.add_statements(statements);
+
+        Ok(self.function)
     }
 
     // assign = equality ("=" assign)?
-    fn parse_assignment(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_assignment(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_equality()?;
 
         if let Some(Token {
@@ -177,7 +231,7 @@ impl<'a> Parser<'a> {
     }
 
     // add = mul ("+" mul | "-" mul)*
-    fn parse_additive(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_additive(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_multiplicative()?;
 
         while let Some(token) = self.tokens.peek() {
@@ -206,7 +260,7 @@ impl<'a> Parser<'a> {
     }
 
     // relational = add ("<" add | "<=" add | ">" add | ">=" add)*
-    fn parse_relational(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_relational(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_additive()?;
 
         while let Some(token) = self.tokens.peek() {
@@ -251,7 +305,7 @@ impl<'a> Parser<'a> {
     }
 
     // equality = relational ("==" relational | "!=" relational)*
-    fn parse_equality(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_equality(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_relational()?;
 
         while let Some(token) = self.tokens.peek() {
@@ -280,11 +334,11 @@ impl<'a> Parser<'a> {
     }
 
     // stmt = expr-stmt
-    fn parse_statement(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         self.parse_expr_statement()
     }
 
-    fn parse_expr_statement(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_expr_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let node = self.parse_expression()?;
 
         let Some(token) = self.tokens.next() else {
@@ -298,12 +352,12 @@ impl<'a> Parser<'a> {
     }
 
     // expr = assign
-    fn parse_expression(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_expression(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         self.parse_assignment()
     }
 
     // primary = "(" expr ")" | ident | num
-    fn parse_primary(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(token) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
@@ -321,14 +375,16 @@ impl<'a> Parser<'a> {
                     _ => Err(self.err_unexpected_token(TokenKind::Punctuation(")"), token.index)),
                 }
             }
-            TokenKind::Identifier(identifier) => Ok(Node::Variable(identifier)),
+            TokenKind::Identifier(name) => {
+                Ok(Node::Variable(self.function.get_or_allocate_local(name)))
+            }
             TokenKind::Numeric(num) => Ok(Node::Numeric(num)),
             _ => Err(self.err_expected_expression(token.index)),
         }
     }
 
     // unary = ("*" | "-" unary | primary
-    fn parse_unary(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_unary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(token) = self.tokens.peek() else {
             return Err(self.err_unusual_end_of_tokens());
         };
@@ -350,7 +406,7 @@ impl<'a> Parser<'a> {
     }
 
     // mul = unary ("*" unary | "/" unary)*
-    fn parse_multiplicative(&mut self) -> Result<Node, ParseError<'a>> {
+    fn parse_multiplicative(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_unary()?;
 
         while let Some(token) = self.tokens.peek() {

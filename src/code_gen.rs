@@ -1,13 +1,14 @@
 use std::borrow::Cow;
 
 use crate::{
-    parser::{BinaryKind, Node, UnaryKind},
+    parser::{BinaryKind, Function, Node, UnaryKind},
     util,
 };
 
 pub struct CodeGen<'a> {
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
+    stack_size: usize,
 }
 
 impl<'a> CodeGen<'a> {
@@ -15,16 +16,23 @@ impl<'a> CodeGen<'a> {
         Self {
             depth: 0,
             instructions: vec![],
+            stack_size: 0,
         }
     }
 
-    pub fn generate_assembly(mut self, node: &Node) -> Vec<Cow<'a, str>> {
+    pub fn generate_assembly(mut self, mut f: Function) -> Vec<Cow<'a, str>> {
+        self.stack_size = f.stack_size();
+        self.generate_assembly_for_node(&f.node())
+    }
+
+    fn generate_assembly_for_node(mut self, node: &Node) -> Vec<Cow<'a, str>> {
         self.instructions.push("  .globl main".into());
         self.instructions.push("main:".into());
 
         self.instructions.push("  push %rbp".into());
         self.instructions.push("  mov %rsp, %rbp".into());
-        self.instructions.push("  sub $208, %rsp".into());
+        self.instructions
+            .push(format!("  sub ${}, %rsp", self.stack_size).into());
 
         self.traverse(&node);
         assert!(self.depth == 0);
@@ -47,13 +55,12 @@ impl<'a> CodeGen<'a> {
     }
 
     fn generate_address(&mut self, node: &Node) {
-        let Node::Variable(name) = node else {
+        let Node::Variable(object) = node else {
             util::errx("lvalue assigment")
         };
 
-        let offset = (*name as i32 - 'a' as i32 + 1) * 8;
         self.instructions
-            .push(format!("  lea -{offset}(%rbp), %rax").into());
+            .push(format!("  lea {}(%rbp), %rax", object.borrow().offset).into());
     }
 
     fn traverse_children(&mut self, rhs: &Node, lhs: &Node) {

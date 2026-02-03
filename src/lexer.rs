@@ -2,7 +2,7 @@ use std::{iter::Peekable, str::CharIndices};
 
 #[derive(Debug)]
 pub enum TokenKind<'a> {
-    Identifier(char),
+    Identifier(&'a str),
     Punctuation(&'a str),
     Numeric(i64),
     EOF,
@@ -107,11 +107,19 @@ impl<'a> Lexer<'a> {
                         length,
                     });
                 }
-                'a'..='z' => {
+                _ if is_identifier_head(c) => {
+                    let mut length = 1;
+                    while let Some((_, i)) = self.chars.peek()
+                        && is_valid_identifier_tail(*i)
+                    {
+                        self.chars.next();
+                        length += 1;
+                    }
+
                     tokens.push(Token {
-                        kind: TokenKind::Identifier(c),
+                        kind: TokenKind::Identifier(&self.input[index..index + length]),
                         index,
-                        length: 1,
+                        length,
                     });
                 }
                 _ => {
@@ -140,4 +148,12 @@ impl<'a> Lexer<'a> {
 
         Ok(tokens)
     }
+}
+
+fn is_identifier_head(c: char) -> bool {
+    matches!(c, 'a'..='z' | 'A'..='Z')
+}
+
+fn is_valid_identifier_tail(c: char) -> bool {
+    is_identifier_head(c) || matches!(c, '0'..'9')
 }

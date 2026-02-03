@@ -35,10 +35,16 @@ fn test_unary() {
 }
 
 #[test]
-fn test_variables() {
+fn test_single_char_variables() {
     assert_exit_status("a=3; a;", 3);
     assert_exit_status("a=3; z = 5; a +z;", 8);
     assert_exit_status("a = b = 3; a + b;", 6);
+}
+
+#[test]
+fn test_variables() {
+    assert_exit_status("foo=3; foo;", 3);
+    assert_exit_status("foo123=3; bar=5; foo123+bar;", 3 + 5);
 }
 
 #[test]
