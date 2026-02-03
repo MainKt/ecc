@@ -171,14 +171,16 @@ impl<'a> CodeGen<'a> {
                 }
                 self.instructions.push(format!(".L.end.{block}:").into());
             }
-            Node::For {
+            Node::Loop {
                 init,
                 condition,
                 increment,
                 loop_block,
             } => {
                 let block = self.next_block_number();
-                self.traverse(init);
+                if let Some(init) = init {
+                    self.traverse(init);
+                }
                 self.instructions.push(format!(".L.begin.{block}:").into());
                 if let Some(condition) = condition {
                     self.traverse(condition);

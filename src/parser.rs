@@ -45,8 +45,8 @@ pub enum Node<'a> {
         then_block: Box<Node<'a>>,
         else_block: Option<Box<Node<'a>>>,
     },
-    For {
-        init: Box<Node<'a>>,
+    Loop {
+        init: Option<Box<Node<'a>>>,
         condition: Option<Box<Node<'a>>>,
         increment: Option<Box<Node<'a>>>,
         loop_block: Box<Node<'a>>,
@@ -348,6 +348,7 @@ impl<'a> Parser<'a> {
     // stmt = "return" expr ";"
     //      | "if" "(" expr ")" stmt ("else" stmt)?
     //      | "for" "(" expr-stmt expr? ";" expr? ")" stmt
+    //      | "while" "(" expr ")" stmt
     //      | "{" compound-stmt
     //      | expr-stmt
     fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
@@ -401,7 +402,7 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 self.expect_next(TokenKind::Punctuation("("))?;
 
-                let init = Box::new(self.parse_expr_statement()?);
+                let init = Some(Box::new(self.parse_expr_statement()?));
 
                 let condition = if let Some(Token {
                     kind: TokenKind::Punctuation(";"),
@@ -427,10 +428,27 @@ impl<'a> Parser<'a> {
 
                 let loop_block = Box::new(self.parse_statement()?);
 
-                Ok(Node::For {
+                Ok(Node::Loop {
                     init,
                     condition,
                     increment,
+                    loop_block,
+                })
+            }
+            Some(Token {
+                kind: TokenKind::Keyword("while"),
+                ..
+            }) => {
+                self.tokens.next();
+                self.expect_next(TokenKind::Punctuation("("))?;
+                let condition = Some(Box::new(self.parse_expression()?));
+                self.expect_next(TokenKind::Punctuation(")"))?;
+                let loop_block = Box::new(self.parse_statement()?);
+
+                Ok(Node::Loop {
+                    init: None,
+                    condition,
+                    increment: None,
                     loop_block,
                 })
             }

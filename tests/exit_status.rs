@@ -96,11 +96,27 @@ fn test_if_statement() {
 
 #[test]
 fn test_for_statement() {
-    assert_exit_status("{ for (;;) {return 3;} return 5; }", 3);
+    assert_exit_status(r"{
+        for (;;) {
+            return 3;
+        }
+        return 5;
+    }", 3);
     assert_exit_status(
         "{ i = 0; j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
         55,
     );
+}
+
+#[test]
+fn test_while_loop() {
+    assert_exit_status(r"{
+        i = 0;
+        while (i < 10) {
+            i = i + 1;
+        }
+        return i;
+    }", 10);
 }
 
 fn assert_exit_status(program: &str, expected_status: i32) {
