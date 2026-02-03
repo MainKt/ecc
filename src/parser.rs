@@ -2,16 +2,31 @@ use std::{iter::Peekable, vec::IntoIter};
 
 use crate::lexer::{Token, TokenKind};
 
+pub enum BinaryKind {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanEqual,
+}
+
+pub enum UnaryKind {
+    Negate,
+}
+
 pub enum Node {
-    Add(Box<Node>, Box<Node>),
-    Subtract(Box<Node>, Box<Node>),
-    Multiply(Box<Node>, Box<Node>),
-    Divide(Box<Node>, Box<Node>),
-    Negative(Box<Node>),
-    Equal(Box<Node>, Box<Node>),
-    NotEqual(Box<Node>, Box<Node>),
-    LessThan(Box<Node>, Box<Node>),
-    LessThanEqual(Box<Node>, Box<Node>),
+    Binary {
+        kind: BinaryKind,
+        lhs: Box<Node>,
+        rhs: Box<Node>,
+    },
+    Unary {
+        kind: UnaryKind,
+        lhs: Box<Node>,
+    },
     Numeric(i64),
 }
 
@@ -136,11 +151,19 @@ impl<'a> Parser<'a> {
             match token.kind {
                 TokenKind::Punctuation("+") => {
                     self.tokens.next();
-                    node = Node::Add(Box::new(node), Box::new(self.parse_multiplicative()?))
+                    node = Node::Binary {
+                        kind: BinaryKind::Add,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_multiplicative()?),
+                    };
                 }
                 TokenKind::Punctuation("-") => {
                     self.tokens.next();
-                    node = Node::Subtract(Box::new(node), Box::new(self.parse_multiplicative()?))
+                    node = Node::Binary {
+                        kind: BinaryKind::Subtract,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_multiplicative()?),
+                    }
                 }
                 _ => break,
             }
@@ -184,7 +207,10 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Punctuation("-") => {
                 self.tokens.next();
-                Ok(Node::Negative(Box::new(self.parse_unary()?)))
+                Ok(Node::Unary {
+                    kind: UnaryKind::Negate,
+                    lhs: Box::new(self.parse_unary()?),
+                })
             }
             _ => self.parse_primary(),
         }
@@ -197,11 +223,19 @@ impl<'a> Parser<'a> {
             match token.kind {
                 TokenKind::Punctuation("*") => {
                     self.tokens.next();
-                    node = Node::Multiply(Box::new(node), Box::new(self.parse_unary()?))
+                    node = Node::Binary {
+                        kind: BinaryKind::Multiply,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_unary()?),
+                    }
                 }
                 TokenKind::Punctuation("/") => {
                     self.tokens.next();
-                    node = Node::Divide(Box::new(node), Box::new(self.parse_unary()?))
+                    node = Node::Binary {
+                        kind: BinaryKind::Divide,
+                        lhs: Box::new(node),
+                        rhs: Box::new(self.parse_unary()?),
+                    }
                 }
                 _ => break,
             }
