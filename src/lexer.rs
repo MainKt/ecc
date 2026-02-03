@@ -103,17 +103,17 @@ impl<'a> Lexer<'a> {
                         info: Info { index },
                     });
                 }
-                _ if is_identifier_head(c) => {
+                _ if Lexer::is_identifier_head(c) => {
                     let mut length = 1;
                     while let Some((_, i)) = self.chars.peek()
-                        && is_valid_identifier_tail(*i)
+                        && Lexer::is_valid_identifier_tail(*i)
                     {
                         self.chars.next();
                         length += 1;
                     }
 
                     let input = &self.input[index..index + length];
-                    let kind = if is_keyword(input) {
+                    let kind = if Lexer::is_keyword(input) {
                         TokenKind::Keyword(input)
                     } else {
                         TokenKind::Identifier(input)
@@ -151,21 +151,21 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
 
+    fn is_identifier_head(c: char) -> bool {
+        matches!(c, 'a'..='z' | 'A'..='Z')
+    }
+
+    fn is_valid_identifier_tail(c: char) -> bool {
+        Lexer::is_identifier_head(c) || matches!(c, '0'..'9')
+    }
+
+    fn is_keyword(s: &str) -> bool {
+        ["return", "if", "else", "for", "while"]
+            .iter()
+            .any(|&keyword| s == keyword)
+    }
+
     pub fn err_invalid_token(self, index: usize) -> LexError<'a> {
         LexError::new(self.input, LexErrorKind::InvalidToken { index })
     }
-}
-
-fn is_identifier_head(c: char) -> bool {
-    matches!(c, 'a'..='z' | 'A'..='Z')
-}
-
-fn is_valid_identifier_tail(c: char) -> bool {
-    is_identifier_head(c) || matches!(c, '0'..'9')
-}
-
-fn is_keyword(s: &str) -> bool {
-    ["return", "if", "else", "for", "while"]
-        .iter()
-        .any(|&keyword| s == keyword)
 }
