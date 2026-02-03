@@ -19,6 +19,7 @@ impl<'a> CodeGen<'a> {
         self.instructions.push("  .globl main".into());
         self.instructions.push("main:".into());
         self.traverse(&node);
+        assert!(self.depth == 0);
         self.instructions.push("  ret".into());
 
         self.instructions
@@ -82,6 +83,12 @@ impl<'a> CodeGen<'a> {
                 }
             }
             Node::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax").into()),
+            Node::ExprStatement { statements } => {
+                statements
+                    .iter()
+                    .for_each(|statement| self.traverse(statement));
+                assert!(self.depth == 0);
+            }
         }
     }
 }

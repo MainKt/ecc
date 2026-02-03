@@ -27,6 +27,9 @@ pub enum Node {
         kind: UnaryKind,
         lhs: Box<Node>,
     },
+    ExprStatement {
+        statements: Vec<Node>,
+    },
     Numeric(i64),
 }
 
@@ -121,17 +124,31 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // program = stmt*
     pub fn parse(mut self) -> Result<Node, ParseError<'a>> {
-        let node = self.parse_expression()?;
+        let mut statements = vec![];
+        let mut got_eof = false;
 
-        let Some(Token { kind, index, .. }) = self.tokens.next() else {
-            return Err(self.err_unusual_end_of_tokens());
-        };
-
-        match kind {
-            TokenKind::EOF => Ok(node),
-            _ => Err(self.err_extra_token(index)),
+        while let Some(Token { kind, .. }) = self.tokens.peek() {
+            match kind {
+                TokenKind::EOF => {
+                    self.tokens.next();
+                    got_eof = true;
+                    break;
+                }
+                _ => statements.push(self.parse_statement()?),
+            }
         }
+
+        if !got_eof {
+            return Err(self.err_unusual_end_of_tokens());
+        }
+
+        if let Some(Token { index, .. }) = self.tokens.next() {
+            return Err(self.err_extra_token(index));
+        }
+
+        Ok(Node::ExprStatement { statements })
     }
 
     // add = mul ("+" mul | "-" mul)*
@@ -235,6 +252,24 @@ impl<'a> Parser<'a> {
         }
 
         Ok(node)
+    }
+
+    // stmt = expr-stmt
+    pub fn parse_statement(&mut self) -> Result<Node, ParseError<'a>> {
+        self.parse_expr_statement()
+    }
+
+    fn parse_expr_statement(&mut self) -> Result<Node, ParseError<'a>> {
+        let node = self.parse_expression()?;
+
+        let Some(token) = self.tokens.next() else {
+            return Err(self.err_unusual_end_of_tokens());
+        };
+
+        match token.kind {
+            TokenKind::Punctuation(";") => Ok(node),
+            _ => Err(self.err_unexpected_token(TokenKind::Punctuation(";"), token.index)),
+        }
     }
 
     // expr = equality
