@@ -185,7 +185,7 @@ impl<'a> Parser<'a> {
         if kind == token.kind {
             Ok(())
         } else {
-            Err(self.err_unexpected_token(kind, token.index))
+            Err(self.err_unexpected_token(kind, token.info.index))
         }
     }
 
@@ -520,7 +520,7 @@ impl<'a> Parser<'a> {
                 Ok(Node::Variable(self.function.get_or_allocate_local(name)))
             }
             TokenKind::Numeric(num) => Ok(Node::Numeric(num)),
-            _ => Err(self.err_expected_expression(token.index)),
+            _ => Err(self.err_expected_expression(token.info.index)),
         }
     }
 

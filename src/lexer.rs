@@ -1,5 +1,7 @@
 use std::{iter::Peekable, str::CharIndices};
 
+use crate::util::Info;
+
 #[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
     Identifier(&'a str),
@@ -24,8 +26,7 @@ impl<'a> std::fmt::Display for TokenKind<'a> {
 #[derive(Debug)]
 pub struct Token<'a> {
     pub kind: TokenKind<'a>,
-    pub index: usize,
-    pub length: usize,
+    pub info: Info,
 }
 
 pub struct Lexer<'a> {
@@ -105,8 +106,7 @@ impl<'a> Lexer<'a> {
 
                     tokens.push(Token {
                         kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
-                        index,
-                        length,
+                        info: Info { index, length },
                     });
                 }
                 _ if is_identifier_head(c) => {
@@ -127,8 +127,7 @@ impl<'a> Lexer<'a> {
 
                     tokens.push(Token {
                         kind,
-                        index,
-                        length,
+                        info: Info { index, length },
                     });
                 }
                 _ => {
@@ -139,8 +138,7 @@ impl<'a> Lexer<'a> {
 
                         tokens.push(Token {
                             kind: TokenKind::Punctuation(&self.input[index..index + length]),
-                            index,
-                            length,
+                            info: Info { index, length },
                         });
                     } else {
                         return Err(self.err_invalid_token(index));
@@ -151,8 +149,10 @@ impl<'a> Lexer<'a> {
 
         tokens.push(Token {
             kind: TokenKind::EOF,
-            index: self.input().len(),
-            length: 0,
+            info: Info {
+                index: self.input().len(),
+                length: 0,
+            },
         });
 
         Ok(tokens)
