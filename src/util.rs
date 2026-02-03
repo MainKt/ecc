@@ -3,8 +3,7 @@ pub fn errx(msg: &str) -> ! {
     std::process::exit(1);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Info {
     pub index: usize,
-    pub length: usize,
 }

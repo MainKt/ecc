@@ -94,19 +94,17 @@ impl<'a> Lexer<'a> {
                 c if c.is_whitespace() => continue,
                 c if c.is_ascii_digit() => {
                     let mut num = format!("{c}");
-                    let mut length = 0;
 
                     while let Some((_, n)) = self.chars.peek()
                         && n.is_ascii_digit()
                     {
                         num.push(*n);
                         self.chars.next();
-                        length += 1;
                     }
 
                     tokens.push(Token {
                         kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
-                        info: Info { index, length },
+                        info: Info { index },
                     });
                 }
                 _ if is_identifier_head(c) => {
@@ -127,7 +125,7 @@ impl<'a> Lexer<'a> {
 
                     tokens.push(Token {
                         kind,
-                        info: Info { index, length },
+                        info: Info { index },
                     });
                 }
                 _ => {
@@ -138,7 +136,7 @@ impl<'a> Lexer<'a> {
 
                         tokens.push(Token {
                             kind: TokenKind::Punctuation(&self.input[index..index + length]),
-                            info: Info { index, length },
+                            info: Info { index },
                         });
                     } else {
                         return Err(self.err_invalid_token(index));
@@ -151,7 +149,6 @@ impl<'a> Lexer<'a> {
             kind: TokenKind::EOF,
             info: Info {
                 index: self.input().len(),
-                length: 0,
             },
         });
 

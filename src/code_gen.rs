@@ -1,11 +1,33 @@
 use std::borrow::Cow;
 
 use crate::{
-    parser::{BinaryKind, Function, Node, UnaryKind},
+    parser::{BinaryKind, Function, Node, NodeKind, UnaryKind},
     util,
 };
 
+pub enum CodeGenErrorKind {
+    NonLValueAssignment { index: usize },
+}
+
+pub struct CodeGenError<'a> {
+    input: &'a str,
+    kind: CodeGenErrorKind,
+}
+
+impl<'a> std::fmt::Display for CodeGenError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            CodeGenErrorKind::NonLValueAssignment { index } => {
+                writeln!(f, "{}", self.input)?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
+                write!(f, "not an lvalue")
+            }
+        }
+    }
+}
+
 pub struct CodeGen<'a> {
+    input: &'a str,
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
     stack_size: usize,
@@ -13,8 +35,9 @@ pub struct CodeGen<'a> {
 }
 
 impl<'a> CodeGen<'a> {
-    pub fn new() -> Self {
+    pub fn new(input: &'a str) -> Self {
         Self {
+            input,
             depth: 0,
             instructions: vec![],
             stack_size: 0,
@@ -27,9 +50,12 @@ impl<'a> CodeGen<'a> {
         self.block_count
     }
 
-    pub fn generate_assembly(mut self, f: &Function) -> Vec<Cow<'a, str>> {
+    pub fn generate_assembly(
+        mut self,
+        f: &Function,
+    ) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
         self.stack_size = f.stack_size();
-        self.generate_assembly_for_ast(f.body())
+        Ok(self.generate_assembly_for_ast(f.body()))
     }
 
     fn generate_assembly_for_ast(mut self, node: &Node) -> Vec<Cow<'a, str>> {
@@ -61,8 +87,9 @@ impl<'a> CodeGen<'a> {
         self.depth -= 1;
     }
 
-    fn generate_address(&mut self, node: &Node) {
-        let Node::Variable(object) = node else {
+    fn generate_address(&mut self, Node { kind, info }: &Node) {
+        let NodeKind::Variable(object) = kind else {
+            eprintln!("{}", self.err_non_lvalue_assigment(info.index));
             util::errx("lvalue assigment")
         };
 
@@ -78,8 +105,8 @@ impl<'a> CodeGen<'a> {
     }
 
     fn traverse(&mut self, node: &Node) {
-        match node {
-            Node::Binary { kind, lhs, rhs } => match kind {
+        match &node.kind {
+            NodeKind::Binary { kind, lhs, rhs } => match kind {
                 BinaryKind::Add => {
                     self.traverse_children(rhs, lhs);
                     self.instructions.push("  add %rdi, %rax".into())
@@ -129,30 +156,30 @@ impl<'a> CodeGen<'a> {
                     self.instructions.push("  mov %rax, (%rdi)".into())
                 }
             },
-            Node::Unary { kind, lhs } => {
+            NodeKind::Unary { kind, lhs } => {
                 self.traverse(lhs);
                 match kind {
                     UnaryKind::Negate => self.instructions.push("  neg %rax".into()),
                     UnaryKind::Return => self.instructions.push("  jmp .L.return".into()),
                 }
             }
-            Node::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax").into()),
-            Node::ExprStatement { statements } => {
+            NodeKind::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax").into()),
+            NodeKind::ExprStatement { statements } => {
                 statements
                     .iter()
                     .for_each(|statement| self.traverse(statement));
                 assert!(self.depth == 0);
             }
-            Node::Variable(_) => {
+            NodeKind::Variable(_) => {
                 self.generate_address(node);
                 self.instructions.push("  mov (%rax), %rax".into())
             }
-            Node::Block {
+            NodeKind::Block {
                 compound_statements,
             } => compound_statements
                 .iter()
                 .for_each(|statement| self.traverse(statement)),
-            Node::If {
+            NodeKind::If {
                 condition,
                 then_block,
                 else_block,
@@ -171,7 +198,7 @@ impl<'a> CodeGen<'a> {
                 }
                 self.instructions.push(format!(".L.end.{block}:").into());
             }
-            Node::Loop {
+            NodeKind::Loop {
                 init,
                 condition,
                 increment,
@@ -196,6 +223,13 @@ impl<'a> CodeGen<'a> {
                     .push(format!("  jmp .L.begin.{block}").into());
                 self.instructions.push(format!(".L.end.{block}:").into());
             }
+        }
+    }
+
+    fn err_non_lvalue_assigment(&self, index: usize) -> CodeGenError<'a> {
+        CodeGenError {
+            kind: CodeGenErrorKind::NonLValueAssignment { index },
+            input: self.input,
         }
     }
 }

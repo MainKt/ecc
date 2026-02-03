@@ -21,8 +21,12 @@ fn main() {
         Err(err) => util::errx(&format!("{err}")),
     };
 
-    let code_gen = CodeGen::new();
-    for instruction in code_gen.generate_assembly(&ast) {
-        println!("{instruction }")
+    let code_gen = CodeGen::new(&input);
+    let instructions = match code_gen.generate_assembly(&ast) {
+        Ok(instructions) => instructions,
+        Err(err) => util::errx(&format!("{err}")),
+    };
+    for instruction in instructions {
+        println!("{instruction}")
     }
 }
