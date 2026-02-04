@@ -61,6 +61,7 @@ pub enum NodeKind<'a> {
     Variable(Rc<RefCell<Object<'a>>>),
     FunctionCall {
         name: &'a str,
+        args: Vec<Node<'a>>,
     },
     Binary {
         kind: BinaryKind,
@@ -680,7 +681,30 @@ impl<'a> Parser<'a> {
         self.parse_assignment()
     }
 
-    // primary = "(" expr ")" | ident args? | num
+    // funcall = ident "(" (assign ("," assign)*)? ")"
+    fn parse_function_call(
+        &mut self,
+        name: &'a str,
+        info: Info,
+    ) -> Result<Node<'a>, ParseError<'a>> {
+        let mut args = vec![];
+
+        while let Some(Token { kind, .. }) = self.tokens.peek() {
+            if let TokenKind::Punctuation(")") = kind {
+                break;
+            }
+            if !args.is_empty() {
+                self.expect_next(TokenKind::Punctuation(","))?;
+            }
+            args.push(self.parse_assignment()?)
+        }
+        self.expect_next(TokenKind::Punctuation(")"))?;
+
+        Node::new(NodeKind::FunctionCall { name, args }, info)
+            .map_err(|e| self.err_type_error(e, info.index))
+    }
+
+    // primary = "(" expr ")" | ident func-args? | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -699,10 +723,7 @@ impl<'a> Parser<'a> {
                 }) = self.tokens.peek()
                 {
                     self.tokens.next();
-                    let function_call = Node::new(NodeKind::FunctionCall { name }, info)
-                        .map_err(|e| self.err_type_error(e, info.index))?;
-                    self.expect_next(TokenKind::Punctuation(")"))?;
-                    return Ok(function_call);
+                    return self.parse_function_call(name, info);
                 }
 
                 Ok(Node::new(

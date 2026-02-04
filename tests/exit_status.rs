@@ -162,6 +162,14 @@ fn while_loop() {
 fn function_call() {
     assert_exit_status("{ return ret3(); }", 3);
     assert_exit_status("{ return ret5(); }", 5);
+    assert_exit_status("{ return add(4, 5); }", 9);
+    assert_exit_status("{ return sub(5, 3); }", 2);
+    assert_exit_status("{ return add6(1, 2, 3, 4, 5, 6); }", 21);
+    assert_exit_status("{ return add6(1,2,add6(3,4,5,6,7,8),9,10,11); }", 66);
+    assert_exit_status(
+        "{ return add6(1,2,add6(3,add6(4,5,6,7,8,9),10,11,12,13),14,15,16); }",
+        136,
+    );
 }
 
 fn define_functions(cc: &str, dir: &TempDir) -> PathBuf {
@@ -171,6 +179,12 @@ fn define_functions(cc: &str, dir: &TempDir) -> PathBuf {
         r"
             int ret3() { return 3; }
             int ret5() { return 5; }
+            int add(int x, int y) { return x + y; }
+            int sub(int x, int y) { return x - y; }
+
+            int add6(int a, int b, int c, int d, int e, int f) {
+                return a + b + c + d + e + f;
+            }
         ",
     )
     .unwrap();

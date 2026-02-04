@@ -33,6 +33,8 @@ pub struct CodeGen<'a> {
     block_count: usize,
 }
 
+static ARG_REGISTERS: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
+
 impl<'a> CodeGen<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
@@ -84,8 +86,8 @@ impl<'a> CodeGen<'a> {
         self.depth += 1;
     }
 
-    fn pop(&mut self) {
-        self.instructions.push("  pop %rdi".into());
+    fn pop(&mut self, register: &str) {
+        self.instructions.push(format!("  pop {register}").into());
         self.depth -= 1;
     }
 
@@ -110,7 +112,7 @@ impl<'a> CodeGen<'a> {
         self.traverse(rhs)?;
         self.push();
         self.traverse(lhs)?;
-        self.pop();
+        self.pop("%rdi");
 
         Ok(())
     }
@@ -163,7 +165,7 @@ impl<'a> CodeGen<'a> {
                     self.generate_address(lhs)?;
                     self.push();
                     self.traverse(rhs)?;
-                    self.pop();
+                    self.pop("%rdi");
                     self.instructions.push("  mov %rax, (%rdi)".into())
                 }
             },
@@ -244,7 +246,14 @@ impl<'a> CodeGen<'a> {
                     .push(format!("  jmp .L.begin.{block}").into());
                 self.instructions.push(format!(".L.end.{block}:").into());
             }
-            NodeKind::FunctionCall { name } => {
+            NodeKind::FunctionCall { name, args } => {
+                for arg in args {
+                    self.traverse(arg)?;
+                    self.push();
+                }
+                for register in ARG_REGISTERS.iter().take(args.len()).rev() {
+                    self.pop(register);
+                }
                 self.instructions.push("  mov $0, %rax".into());
                 self.instructions.push(format!("  call {name}").into());
             }
