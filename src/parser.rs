@@ -23,6 +23,14 @@ impl<'a> Node<'a> {
             node_type,
         }
     }
+
+    pub fn new_of_type(kind: NodeKind<'a>, info: Info, node_type: Rc<Type>) -> Self {
+        Self {
+            kind,
+            info,
+            node_type,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -661,6 +669,7 @@ impl<'a> Parser<'a> {
         rhs: Box<Node<'a>>,
         info: Info,
     ) -> Result<Node<'a>, ParseError<'a>> {
+        dbg!((&lhs, &rhs));
         match (lhs.node_type.as_ref(), rhs.node_type.as_ref()) {
             (Type::Integer, Type::Integer) => {
                 Ok(Node::new(NodeKind::binary(BinaryKind::Add, lhs, rhs), info))
@@ -716,7 +725,11 @@ impl<'a> Parser<'a> {
                 ))
             }
             (Type::Pointer(_), Type::Pointer(_)) => {
-                let difference = Node::new(NodeKind::binary(BinaryKind::Subtract, lhs, rhs), info);
+                let difference = Node::new_of_type(
+                    NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
+                    info,
+                    Type::integer(),
+                );
 
                 Ok(Node::new(
                     NodeKind::binary(

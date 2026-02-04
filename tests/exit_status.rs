@@ -32,19 +32,9 @@ fn address_of_and_deref() {
     // assert_exit_status("{ x=3; y=5; *(&y-1)=7; return x; }", 7);
     assert_exit_status("{ x=3; y=5; *(&y+1)=7; return x; }", 7);
 
-    assert_exit_status(
-        r"{
-        x = 3;
-        y = 5;
-        return *(&y-(-1));
-    }",
-        3,
-    );
+    assert_exit_status(r"{ x = 3; y = 5; return *(&y-(-1)); }", 3);
 
-    assert_exit_status(
-        r"{ x = 3; return (&x+2)-&x+3; }",
-        5,
-    );
+    assert_exit_status(r"{ x = 3; return (&x+2)-&x+3; }", 5);
 }
 
 #[test]

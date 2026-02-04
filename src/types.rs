@@ -15,15 +15,15 @@ thread_local! {
 }
 
 impl Type {
-    fn integer() -> Rc<Self> {
+    pub fn integer() -> Rc<Self> {
         INTEGER.with(|t| t.clone())
     }
 
-    fn pointer_to(to: &Rc<Self>) -> Rc<Self> {
+    pub fn pointer_to(to: &Rc<Self>) -> Rc<Self> {
         Rc::new(Self::Pointer(to.clone()))
     }
 
-    fn none() -> Rc<Self> {
+    pub fn none() -> Rc<Self> {
         NONE.with(|t| t.clone())
     }
 

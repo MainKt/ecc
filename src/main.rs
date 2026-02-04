@@ -17,7 +17,7 @@ fn main() {
 
     let parser = Parser::new(&input, tokens);
     let ast = match parser.parse() {
-        Ok(node) => node,
+        Ok(ast) => ast,
         Err(err) => util::errx(&format!("{err}")),
     };
 
