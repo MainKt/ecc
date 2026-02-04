@@ -1,20 +1,20 @@
 use std::process::Command;
 
 #[test]
-fn test_assembly_exit_status() {
+fn assembly_exit_status() {
     assert_exit_status("{return 0;}", 0);
     assert_exit_status("{return 1;}", 1);
     assert_exit_status("{return 42;}", 42);
 }
 
 #[test]
-fn test_basic_arithmetic() {
+fn basic_arithmetic() {
     assert_exit_status("{return 5+20-4;}", 21);
     assert_exit_status("{return 40-20-4;}", 16);
 }
 
 #[test]
-fn test_address_of_and_deref() {
+fn address_of_and_deref() {
     assert_exit_status("{ x=3; return *&x; }", 3);
     assert_exit_status("{ x=3; y=&x; z=&y; return **z; }", 3);
     assert_exit_status("{ x=3; y=&x; *y=5; return x; }", 5);
@@ -31,10 +31,24 @@ fn test_address_of_and_deref() {
 
     // assert_exit_status("{ x=3; y=5; *(&y-1)=7; return x; }", 7);
     assert_exit_status("{ x=3; y=5; *(&y+1)=7; return x; }", 7);
+
+    assert_exit_status(
+        r"{
+        x = 3;
+        y = 5;
+        return *(&y-(-1));
+    }",
+        3,
+    );
+
+    assert_exit_status(
+        r"{ x = 3; return (&x+2)-&x+3; }",
+        5,
+    );
 }
 
 #[test]
-fn test_basic_arithmetic_with_spaces() {
+fn basic_arithmetic_with_spaces() {
     assert_exit_status("{return 12 + 34 - 5;}", 41);
     assert_exit_status("{return 12+34 - 5;}", 41);
     assert_exit_status("{return  12 + 34 - 5 ;}", 41);
@@ -42,50 +56,50 @@ fn test_basic_arithmetic_with_spaces() {
 }
 
 #[test]
-fn test_parentheses() {
+fn parentheses() {
     assert_exit_status("{return 5*(9-6);}", 15);
     assert_exit_status("{return (3+5)/2;}", 4);
 }
 
 #[test]
-fn test_unary() {
+fn unary() {
     assert_exit_status("{return -10+20;}", 10);
     assert_exit_status("{return - -10;}", 10);
     assert_exit_status("{return - - +10;}", 10);
 }
 
 #[test]
-fn test_single_char_variables() {
+fn single_char_variables() {
     assert_exit_status("{a=3; return a;}", 3);
     assert_exit_status("{a=3; z = 5; return a +z;}", 8);
     assert_exit_status("{a = b = 3; return a + b;}", 6);
 }
 
 #[test]
-fn test_variables() {
+fn variables() {
     assert_exit_status("{foo=3; return foo;}", 3);
     assert_exit_status("{foo123=3; bar=5; return foo123+bar;}", 3 + 5);
 }
 
 #[test]
-fn test_return() {
+fn return_statement() {
     assert_exit_status("{return 1; 2; 3;}", 1);
     assert_exit_status("{1; return 2; 3;}", 2);
     assert_exit_status("{1; 2; return 3;}", 3);
 }
 
 #[test]
-fn test_nested_braces() {
+fn nested_braces() {
     assert_exit_status("{ {1; {2;} return 3;} }", 3);
 }
 
 #[test]
-fn test_null_blocks() {
+fn null_blocks() {
     assert_exit_status("{ ;;; return 5;}", 5);
 }
 
 #[test]
-fn test_comparison_operators() {
+fn comparison_operators() {
     assert_exit_status("{0==1;}", 0);
     assert_exit_status("{42==42;}", 1);
     assert_exit_status("{0!=1;}", 1);
@@ -105,7 +119,7 @@ fn test_comparison_operators() {
 }
 
 #[test]
-fn test_if_statement() {
+fn if_statement() {
     assert_exit_status("{ if (0) return 2; return 3; }", 3);
     assert_exit_status("{ if (1-1) return 2; return 3; }", 3);
     assert_exit_status("{ if (1) return 2; return 3; }", 2);
@@ -115,7 +129,7 @@ fn test_if_statement() {
 }
 
 #[test]
-fn test_for_statement() {
+fn for_statement() {
     assert_exit_status(
         r"{
         for (;;) {
@@ -132,7 +146,7 @@ fn test_for_statement() {
 }
 
 #[test]
-fn test_while_loop() {
+fn while_loop() {
     assert_exit_status(
         r"{
         i = 0;
@@ -151,7 +165,12 @@ fn assert_exit_status(program: &str, expected_status: i32) {
         .arg(program)
         .output()
         .expect("failed to run the compiler");
-    assert!(asm_out.status.success(), "{}", program);
+    assert!(
+        asm_out.status.success(),
+        "{}\n---------\n{}",
+        program,
+        String::from_utf8(asm_out.stderr).unwrap()
+    );
 
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let asm_path = dir.path().join("asm.S");
@@ -169,13 +188,11 @@ fn assert_exit_status(program: &str, expected_status: i32) {
             .success()
     );
 
+    let assemble = Command::new(exe_path).output().expect("failed to assemble");
     assert_eq!(
-        Command::new(exe_path)
-            .status()
-            .expect("failed to assemble")
-            .code(),
+        assemble.status.code(),
         Some(expected_status),
-        "\nprogram: {program}\nassembly:\n---------\n{}\n---------\n",
-        String::from_utf8(asm_out.stdout).unwrap()
+        "\nprogram: {program}\nassembly:\n---------\n{}\n---------",
+        String::from_utf8(asm_out.stdout).unwrap(),
     );
 }
