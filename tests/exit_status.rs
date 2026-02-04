@@ -20,17 +20,17 @@ fn test_address_of_and_deref() {
     assert_exit_status("{ x=3; y=&x; *y=5; return x; }", 5);
 
     // NOTE: commented tests are from chibicc where stack locals is inverted
-    // assert_exit_status("{ x=3; y=5; return *(&x+8); }", 5);
-    assert_exit_status("{ x=3; y=5; return *(&x-8); }", 5);
+    // assert_exit_status("{ x=3; y=5; return *(&x+1); }", 5);
+    assert_exit_status("{ x=3; y=5; return *(&x-1); }", 5);
 
-    // assert_exit_status("{ x=3; y=5; return *(&y-8); }", 3);
-    assert_exit_status("{ x=3; y=5; return *(&y+8); }", 3);
+    // assert_exit_status("{ x=3; y=5; return *(&y-1); }", 3);
+    assert_exit_status("{ x=3; y=5; return *(&y+1); }", 3);
 
-    // assert_exit_status("{ x=3; y=5; *(&x+8)=7; return y; }", 7);
-    assert_exit_status("{ x=3; y=5; *(&x-8)=7; return y; }", 7);
+    // assert_exit_status("{ x=3; y=5; *(&x+1)=7; return y; }", 7);
+    assert_exit_status("{ x=3; y=5; *(&x-1)=7; return y; }", 7);
 
-    // assert_exit_status("{ x=3; y=5; *(&y-8)=7; return x; }", 7);
-    assert_exit_status("{ x=3; y=5; *(&y+8)=7; return x; }", 7);
+    // assert_exit_status("{ x=3; y=5; *(&y-1)=7; return x; }", 7);
+    assert_exit_status("{ x=3; y=5; *(&y+1)=7; return x; }", 7);
 }
 
 #[test]
@@ -175,7 +175,7 @@ fn assert_exit_status(program: &str, expected_status: i32) {
             .expect("failed to assemble")
             .code(),
         Some(expected_status),
-        "assembly:\n---------\n{}\n---------\n",
+        "\nprogram: {program}\nassembly:\n---------\n{}\n---------\n",
         String::from_utf8(asm_out.stdout).unwrap()
     );
 }

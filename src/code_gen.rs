@@ -91,7 +91,7 @@ impl<'a> CodeGen<'a> {
 
     fn generate_address(&mut self, Node { kind, info, .. }: &Node) -> Result<(), CodeGenError<'a>> {
         match kind {
-            NodeKind::Variable(object) => {
+            NodeKind::Variable { object, .. } => {
                 self.instructions
                     .push(format!("  lea {}(%rbp), %rax", object.borrow().offset).into());
 
@@ -100,6 +100,7 @@ impl<'a> CodeGen<'a> {
             NodeKind::Unary {
                 kind: UnaryKind::Deref,
                 lhs,
+                ..
             } => self.traverse(lhs),
             _ => Err(self.err_non_lvalue_assigment(info.index)),
         }
@@ -116,7 +117,7 @@ impl<'a> CodeGen<'a> {
 
     fn traverse(&mut self, node: &Node) -> Result<(), CodeGenError<'a>> {
         match &node.kind {
-            NodeKind::Binary { kind, lhs, rhs } => match kind {
+            NodeKind::Binary { kind, lhs, rhs, .. } => match kind {
                 BinaryKind::Add => {
                     self.traverse_children(rhs, lhs)?;
                     self.instructions.push("  add %rdi, %rax".into())
@@ -166,7 +167,7 @@ impl<'a> CodeGen<'a> {
                     self.instructions.push("  mov %rax, (%rdi)".into())
                 }
             },
-            NodeKind::Unary { kind, lhs } => match kind {
+            NodeKind::Unary { kind, lhs, .. } => match kind {
                 UnaryKind::Negate => {
                     self.traverse(lhs)?;
                     self.instructions.push("  neg %rax".into())
@@ -181,14 +182,16 @@ impl<'a> CodeGen<'a> {
                     self.instructions.push("  mov (%rax), %rax".into())
                 }
             },
-            NodeKind::Numeric(num) => self.instructions.push(format!("  mov ${num}, %rax").into()),
+            NodeKind::Numeric { value, .. } => self
+                .instructions
+                .push(format!("  mov ${value}, %rax").into()),
             NodeKind::ExprStatement { statements } => {
                 statements
                     .iter()
                     .try_for_each(|statement| self.traverse(statement))?;
                 assert!(self.depth == 0);
             }
-            NodeKind::Variable(_) => {
+            NodeKind::Variable { .. } => {
                 self.generate_address(node)?;
                 self.instructions.push("  mov (%rax), %rax".into())
             }
