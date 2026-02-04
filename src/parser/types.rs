@@ -5,12 +5,12 @@ use crate::parser::{BinaryKind, NodeKind, UnaryKind};
 #[derive(Debug)]
 pub struct Type {
     pub kind: TypeKind,
-    pub size: Option<usize>,
+    pub size: usize,
 }
 
 #[derive(Debug)]
 pub enum DerivedKind {
-    Array,
+    Array { length: usize },
     Pointer,
 }
 
@@ -31,11 +31,11 @@ pub enum TypeKind {
 thread_local! {
     static NONE: Rc<Type> = Rc::new(Type {
         kind: TypeKind::None,
-        size: Some(0),
+        size: 0,
     });
     static INTEGER: Rc<Type> = Rc::new(Type {
         kind: TypeKind::Integer,
-        size: Some(8)
+        size: 8
     });
 }
 
@@ -43,6 +43,7 @@ thread_local! {
 pub enum TypeError {
     InvalidPointerDeref,
     InvalidOperands,
+    NonLValueAssignment,
 }
 
 impl Type {
@@ -56,7 +57,17 @@ impl Type {
                 kind: DerivedKind::Pointer,
                 to: to.clone(),
             },
-            size: Some(8),
+            size: 8,
+        })
+    }
+
+    pub fn array_of(of: &Rc<Self>, length: usize) -> Rc<Self> {
+        Rc::new(Self {
+            kind: TypeKind::Derived {
+                kind: DerivedKind::Array { length },
+                to: of.clone(),
+            },
+            size: of.size * length,
         })
     }
 
@@ -66,7 +77,7 @@ impl Type {
                 return_type: return_type.clone(),
                 params: vec![],
             },
-            size: Some(0),
+            size: 0,
         })
     }
 
@@ -82,8 +93,18 @@ impl Type {
                 BinaryKind::Add
                 | BinaryKind::Subtract
                 | BinaryKind::Multiply
-                | BinaryKind::Divide
-                | BinaryKind::Assign => Ok(lhs.node_type.clone()),
+                | BinaryKind::Divide => Ok(lhs.node_type.clone()),
+                BinaryKind::Assign => {
+                    if let TypeKind::Derived {
+                        kind: DerivedKind::Array { .. },
+                        ..
+                    } = lhs.node_type.kind
+                    {
+                        Err(TypeError::NonLValueAssignment)
+                    } else {
+                        Ok(lhs.node_type.clone())
+                    }
+                }
                 BinaryKind::Equal => Ok(Self::integer()),
                 BinaryKind::NotEqual => Ok(Self::integer()),
                 BinaryKind::LessThan => Ok(Self::integer()),
@@ -91,7 +112,17 @@ impl Type {
             },
             NodeKind::Unary { kind, lhs, .. } => match kind {
                 UnaryKind::Negate => Ok(lhs.node_type.clone()),
-                UnaryKind::Address => Ok(Self::pointer_to(&lhs.node_type)),
+                UnaryKind::Address => {
+                    if let TypeKind::Derived {
+                        kind: DerivedKind::Array { .. },
+                        to,
+                    } = &lhs.node_type.kind
+                    {
+                        Ok(Self::pointer_to(to))
+                    } else {
+                        Ok(Self::pointer_to(&lhs.node_type))
+                    }
+                }
                 UnaryKind::Deref => match &lhs.node_type.kind {
                     TypeKind::Derived { to, .. } => Ok(to.clone()),
                     _ => Err(TypeError::InvalidPointerDeref),

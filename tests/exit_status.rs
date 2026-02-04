@@ -26,6 +26,48 @@ fn multi_param_functions() {
 }
 
 #[test]
+fn array() {
+    assert_exit_status("int main() { int x[2]; int *y=&x; *y=3; return *x; }", 3);
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; *(x+1)=4; *(x+2)=5; return *x; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; *(x+1)=4; *(x+2)=5; return *(x+1); }",
+        4,
+    );
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; *(x+1)=4; *(x+2)=5; return *(x+2); }",
+        5,
+    );
+}
+
+#[test]
+fn array_2d() {
+    assert_exit_status("int main() { int x[2][3]; int *y=x; *y=0; return **x; }", 0);
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; *(y+1)=1; return *(*x+1); }",
+        1,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; *(y+2)=2; return *(*x+2); }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; *(y+3)=3; return **(x+1); }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; *(y+4)=4; return *(*(x+1)+1); }",
+        4,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; *(y+5)=5; return *(*(x+1)+2); }",
+        5,
+    );
+}
+
+#[test]
 fn basic_arithmetic() {
     assert_exit_status("int main() {return 5+20-4;}", 21);
     assert_exit_status("int main() {return 40-20-4;}", 16);

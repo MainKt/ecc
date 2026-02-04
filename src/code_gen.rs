@@ -1,6 +1,9 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
-use crate::parser::{BinaryKind, Function, Node, NodeKind, UnaryKind};
+use crate::parser::{
+    BinaryKind, Function, Node, NodeKind, UnaryKind,
+    types::{DerivedKind, Type, TypeKind},
+};
 
 #[derive(Debug)]
 pub enum CodeGenErrorKind {
@@ -124,6 +127,23 @@ impl<'a> CodeGen<'a> {
         Ok(())
     }
 
+    fn load(&mut self, load_type: &Rc<Type>) {
+        if let TypeKind::Derived {
+            kind: DerivedKind::Array { .. },
+            ..
+        } = load_type.kind
+        {
+            return;
+        }
+
+        self.instructions.push("  mov (%rax), %rax".into())
+    }
+
+    fn store(&mut self) {
+        self.pop("%rdi");
+        self.instructions.push("  mov %rax, (%rdi)".into())
+    }
+
     fn traverse(&mut self, node: &Node) -> Result<(), CodeGenError<'a>> {
         match &node.kind {
             NodeKind::Binary { kind, lhs, rhs, .. } => match kind {
@@ -172,8 +192,7 @@ impl<'a> CodeGen<'a> {
                     self.generate_address(lhs)?;
                     self.push();
                     self.traverse(rhs)?;
-                    self.pop("%rdi");
-                    self.instructions.push("  mov %rax, (%rdi)".into())
+                    self.store()
                 }
             },
             NodeKind::Unary { kind, lhs, .. } => match kind {
@@ -189,7 +208,7 @@ impl<'a> CodeGen<'a> {
                 UnaryKind::Address => self.generate_address(lhs)?,
                 UnaryKind::Deref => {
                     self.traverse(lhs)?;
-                    self.instructions.push("  mov (%rax), %rax".into())
+                    self.load(&node.node_type);
                 }
             },
             NodeKind::Numeric(value) => self
@@ -201,9 +220,9 @@ impl<'a> CodeGen<'a> {
                     .try_for_each(|statement| self.traverse(statement))?;
                 assert!(self.depth == 0);
             }
-            NodeKind::Variable { .. } => {
+            NodeKind::Variable(..) => {
                 self.generate_address(node)?;
-                self.instructions.push("  mov (%rax), %rax".into())
+                self.load(&node.node_type);
             }
             NodeKind::Block {
                 compound_statements,
@@ -275,5 +294,9 @@ impl<'a> CodeGen<'a> {
             kind: CodeGenErrorKind::NonLValueAssignment { index },
             input: self.input,
         }
+    }
+
+    fn _dbg(&mut self, msg: &str) {
+        self.instructions.push(format!("<dbg>###{msg}###").into());
     }
 }

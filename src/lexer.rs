@@ -7,7 +7,7 @@ pub enum TokenKind<'a> {
     Identifier(&'a str),
     Keyword(&'a str),
     Punctuation(&'a str),
-    Numeric(i64),
+    Numeric(usize),
     EOF,
 }
 
