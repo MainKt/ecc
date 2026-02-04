@@ -48,7 +48,7 @@ impl<'a> CodeGen<'a> {
         }
     }
 
-    fn current_fn(&self) -> &'a Function<'a> {
+    fn function(&self) -> &'a Function<'a> {
         &self.functions[self.current_function]
     }
 
@@ -62,18 +62,24 @@ impl<'a> CodeGen<'a> {
             self.current_function = current_function;
 
             self.instructions
-                .push(format!("  .globl {}", self.current_fn().name()).into());
+                .push(format!("  .globl {}", self.function().name()).into());
             self.instructions
-                .push(format!("{}:", self.current_fn().name()).into());
+                .push(format!("{}:", self.function().name()).into());
             self.instructions.push("  push %rbp".into());
             self.instructions.push("  mov %rsp, %rbp".into());
             self.instructions
-                .push(format!("  sub ${}, %rsp", self.current_fn().stack_size()).into());
+                .push(format!("  sub ${}, %rsp", self.function().stack_size()).into());
 
-            self.traverse(&self.current_fn().body())?;
+            for (param, register) in self.function().params().iter().zip(ARG_REGISTERS) {
+                let param = param.borrow();
+                self.instructions
+                    .push(format!("  mov {register}, {}(%rbp)", param.offset).into());
+            }
+
+            self.traverse(&self.function().body())?;
 
             self.instructions
-                .push(format!(".L.return.{}:", self.current_fn().name()).into());
+                .push(format!(".L.return.{}:", self.function().name()).into());
             self.instructions.push("  mov %rbp, %rsp".into());
             self.instructions.push("  pop %rbp".into());
             self.instructions.push("  ret".into());
@@ -178,7 +184,7 @@ impl<'a> CodeGen<'a> {
                 UnaryKind::Return => {
                     self.traverse(lhs)?;
                     self.instructions
-                        .push(format!("  jmp .L.return.{}", self.current_fn().name()).into())
+                        .push(format!("  jmp .L.return.{}", self.function().name()).into())
                 }
                 UnaryKind::Address => self.generate_address(lhs)?,
                 UnaryKind::Deref => {

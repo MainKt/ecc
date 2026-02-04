@@ -7,7 +7,10 @@ pub enum Type {
     None,
     Integer,
     Pointer(Rc<Type>),
-    Function { return_type: Rc<Type> },
+    Function {
+        params: Vec<Rc<Type>>,
+        return_type: Rc<Type>,
+    },
 }
 
 thread_local! {
@@ -33,6 +36,7 @@ impl Type {
     pub fn function(return_type: &Rc<Self>) -> Rc<Self> {
         Rc::new(Self::Function {
             return_type: return_type.clone(),
+            params: vec![],
         })
     }
 

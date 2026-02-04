@@ -10,6 +10,22 @@ fn assembly_exit_status() {
 }
 
 #[test]
+fn multi_param_functions() {
+    assert_exit_status(
+        "int main() { return add2(3,4); } int add2(int x, int y) { return x+y; }",
+        7,
+    );
+    assert_exit_status(
+        "int main() { return sub2(4,3); } int sub2(int x, int y) { return x-y; }",
+        1,
+    );
+    assert_exit_status(
+        "int main() { return fib(9); } int fib(int x) { if (x<=1) return 1; return fib(x-1) + fib(x-2); }",
+        55,
+    );
+}
+
+#[test]
 fn basic_arithmetic() {
     assert_exit_status("int main() {return 5+20-4;}", 21);
     assert_exit_status("int main() {return 40-20-4;}", 16);

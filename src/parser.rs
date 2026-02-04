@@ -111,6 +111,7 @@ pub struct Object<'a> {
 #[derive(Debug)]
 pub struct Function<'a> {
     name: &'a str,
+    params: Vec<Rc<RefCell<Object<'a>>>>,
     body: Node<'a>,
     locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
     offset: usize,
@@ -120,6 +121,7 @@ impl<'a> Function<'a> {
     pub fn new() -> Self {
         Self {
             name: "main",
+            params: vec![],
             locals: HashMap::new(),
             offset: 0,
             body: Node::new(NodeKind::Numeric(0), Info { index: 0 })
@@ -127,8 +129,16 @@ impl<'a> Function<'a> {
         }
     }
 
+    pub fn params(&self) -> &[Rc<RefCell<Object<'a>>>] {
+        &self.params
+    }
+
     pub fn name(&self) -> &'a str {
         self.name
+    }
+
+    pub fn push_param(&mut self, param: Rc<RefCell<Object<'a>>>) {
+        self.params.push(param)
     }
 
     pub fn set_name(&mut self, name: &'a str) {
@@ -290,7 +300,7 @@ impl<'a> Parser<'a> {
     // function = compound-stmt*
     fn parse_function(&mut self, info: Info) -> Result<Function<'a>, ParseError<'a>> {
         let return_type = self.parse_declaration_spec()?;
-        let (_decl_type, identifier) = self.parse_declarator(return_type.clone())?;
+        let (identifier, _decl_type) = self.parse_declarator(return_type.clone())?;
         self.function().set_name(identifier);
 
         self.expect_next(TokenKind::Punctuation("{"))?;
@@ -456,7 +466,9 @@ impl<'a> Parser<'a> {
         Ok(Type::integer())
     }
 
-    // type-suffix = ("(" func-params)?
+    // type-suffix = ("(" func-params? ")")?
+    // func-params = param ("," param)*
+    // param       = declspec declarator
     fn parse_type_suffix(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
         if let Some(Token {
             kind: TokenKind::Punctuation("("),
@@ -464,7 +476,25 @@ impl<'a> Parser<'a> {
         }) = self.tokens.peek()
         {
             self.tokens.next();
+
+            while let Some(Token { kind, .. }) = self.tokens.peek() {
+                if let TokenKind::Punctuation(")") = kind {
+                    break;
+                }
+
+                if !self.function().params().is_empty() {
+                    self.expect_next(TokenKind::Punctuation(","))?;
+                }
+
+                let param_type = self.parse_declaration_spec()?;
+                let (param_name, param_type) = self.parse_declarator(param_type)?;
+                let object = self
+                    .function()
+                    .get_or_allocate_local(param_name, param_type);
+                self.function().push_param(object);
+            }
             self.expect_next(TokenKind::Punctuation(")"))?;
+
             return Ok(Type::function(&decl_type));
         }
 
@@ -475,7 +505,7 @@ impl<'a> Parser<'a> {
     fn parse_declarator(
         &mut self,
         base_type: Rc<Type>,
-    ) -> Result<(Rc<Type>, &'a str), ParseError<'a>> {
+    ) -> Result<(&'a str, Rc<Type>), ParseError<'a>> {
         let mut decl_type = base_type;
         while let Some(Token {
             kind: TokenKind::Punctuation("*"),
@@ -496,7 +526,7 @@ impl<'a> Parser<'a> {
 
         let decl_type = self.parse_type_suffix(decl_type)?;
 
-        Ok((decl_type, identifier))
+        Ok((identifier, decl_type))
     }
 
     // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
@@ -515,7 +545,7 @@ impl<'a> Parser<'a> {
             }
             decl_count += 1;
 
-            let (decl_type, identifier) = self.parse_declarator(base_type.clone())?;
+            let (identifier, decl_type) = self.parse_declarator(base_type.clone())?;
             let object = self.function().get_or_allocate_local(identifier, decl_type);
 
             if let Some(Token {
