@@ -182,7 +182,7 @@ impl<'a> CodeGen<'a> {
                     self.instructions.push("  mov (%rax), %rax".into())
                 }
             },
-            NodeKind::Numeric { value, .. } => self
+            NodeKind::Numeric(value) => self
                 .instructions
                 .push(format!("  mov ${value}, %rax").into()),
             NodeKind::ExprStatement { statements } => {

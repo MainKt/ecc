@@ -57,9 +57,7 @@ pub enum UnaryKind {
 
 #[derive(Debug)]
 pub enum NodeKind<'a> {
-    Numeric {
-        value: i64,
-    },
+    Numeric(i64),
     Variable(Rc<RefCell<Object<'a>>>),
     Binary {
         kind: BinaryKind,
@@ -97,10 +95,6 @@ impl<'a> NodeKind<'a> {
     pub fn unary(kind: UnaryKind, lhs: Box<Node<'a>>) -> Self {
         Self::Unary { kind, lhs }
     }
-
-    pub fn numeric(value: i64) -> Self {
-        Self::Numeric { value }
-    }
 }
 
 #[derive(Debug)]
@@ -122,7 +116,7 @@ impl<'a> Function<'a> {
         Self {
             locals: HashMap::new(),
             offset: 0,
-            body: Node::new(NodeKind::numeric(0), Info { index: 0 })
+            body: Node::new(NodeKind::Numeric(0), Info { index: 0 })
                 .expect("this wasn't even serious to begin with"),
         }
     }
@@ -704,7 +698,7 @@ impl<'a> Parser<'a> {
                 info,
             )
             .map_err(|e| self.err_type_error(e, info.index))?),
-            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::numeric(num), info)
+            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(num), info)
                 .map_err(|e| self.err_type_error(e, info.index))?),
             _ => Err(self.err_expected_expression(info.index)),
         }
@@ -810,7 +804,7 @@ impl<'a> Parser<'a> {
                         BinaryKind::Multiply,
                         rhs,
                         Box::new(
-                            Node::new(NodeKind::numeric(8), info)
+                            Node::new(NodeKind::Numeric(8), info)
                                 .map_err(|e| self.err_type_error(e, info.index))?,
                         ),
                     ),
@@ -847,7 +841,7 @@ impl<'a> Parser<'a> {
                         BinaryKind::Multiply,
                         rhs,
                         Box::new(
-                            Node::new(NodeKind::numeric(8), info)
+                            Node::new(NodeKind::Numeric(8), info)
                                 .map_err(|e| self.err_type_error(e, info.index))?,
                         ),
                     ),
@@ -873,7 +867,7 @@ impl<'a> Parser<'a> {
                         BinaryKind::Divide,
                         Box::new(difference),
                         Box::new(
-                            Node::new(NodeKind::numeric(8), info)
+                            Node::new(NodeKind::Numeric(8), info)
                                 .map_err(|e| self.err_type_error(e, info.index))?,
                         ),
                     ),
