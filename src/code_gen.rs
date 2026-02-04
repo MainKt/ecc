@@ -91,7 +91,7 @@ impl<'a> CodeGen<'a> {
 
     fn generate_address(&mut self, Node { kind, info, .. }: &Node) -> Result<(), CodeGenError<'a>> {
         match kind {
-            NodeKind::Variable { object, .. } => {
+            NodeKind::Variable(object, ..) => {
                 self.instructions
                     .push(format!("  lea {}(%rbp), %rax", object.borrow().offset).into());
 

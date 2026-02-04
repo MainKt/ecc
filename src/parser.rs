@@ -1,10 +1,12 @@
+pub mod types;
+
 use std::{cell::RefCell, collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
 
 use crate::{
     lexer::{Token, TokenKind},
-    types::Type,
     util::Info,
 };
+use types::{Type, TypeError};
 
 #[derive(Debug)]
 pub struct Node<'a> {
@@ -14,14 +16,14 @@ pub struct Node<'a> {
 }
 
 impl<'a> Node<'a> {
-    pub fn new(kind: NodeKind<'a>, info: Info) -> Self {
-        let node_type = Type::of(&kind);
+    pub fn new(kind: NodeKind<'a>, info: Info) -> Result<Self, TypeError> {
+        let node_type = Type::of(&kind)?;
 
-        Self {
+        Ok(Self {
             kind,
             info,
             node_type,
-        }
+        })
     }
 
     pub fn new_of_type(kind: NodeKind<'a>, info: Info, node_type: Rc<Type>) -> Self {
@@ -59,9 +61,7 @@ pub enum NodeKind<'a> {
     Numeric {
         value: i64,
     },
-    Variable {
-        object: Rc<RefCell<Object<'a>>>,
-    },
+    Variable(Rc<RefCell<Object<'a>>>),
     Binary {
         kind: BinaryKind,
         lhs: Box<Node<'a>>,
@@ -104,7 +104,7 @@ impl<'a> NodeKind<'a> {
     }
 
     pub fn variable(object: Rc<RefCell<Object<'a>>>) -> Self {
-        Self::Variable { object }
+        Self::Variable(object)
     }
 }
 
@@ -112,6 +112,7 @@ impl<'a> NodeKind<'a> {
 pub struct Object<'a> {
     pub name: &'a str,
     pub offset: isize,
+    pub object_type: Rc<Type>,
 }
 
 #[derive(Debug)]
@@ -126,7 +127,8 @@ impl<'a> Function<'a> {
         Self {
             locals: HashMap::new(),
             offset: 0,
-            body: Node::new(NodeKind::numeric(0), Info { index: 0 }),
+            body: Node::new(NodeKind::numeric(0), Info { index: 0 })
+                .expect("this wasn't even serious to begin with"),
         }
     }
 
@@ -138,7 +140,11 @@ impl<'a> Function<'a> {
         &self.body
     }
 
-    pub fn get_or_allocate_local(&mut self, name: &'a str) -> Rc<RefCell<Object<'a>>> {
+    pub fn get_or_allocate_local(
+        &mut self,
+        name: &'a str,
+        object_type: Rc<Type>,
+    ) -> Rc<RefCell<Object<'a>>> {
         // NOTE: assigning offsets this way leads to a stack locals order
         // that is inverted compared to chibicc
         let object = self.locals.entry(name).or_insert_with(|| {
@@ -147,6 +153,7 @@ impl<'a> Function<'a> {
             Rc::new(RefCell::new(Object {
                 name,
                 offset: -(self.offset as isize),
+                object_type,
             }))
         });
 
@@ -165,55 +172,51 @@ pub struct Parser<'a> {
 }
 
 pub enum ParseErrorKind<'a> {
-    ExtraToken {
-        index: usize,
-    },
-    ExpectedExpression {
-        index: usize,
-    },
-    InvalidOperands {
-        index: usize,
-    },
-    UnexpectedToken {
-        index: usize,
-        expected: TokenKind<'a>,
-    },
+    InvalidPointerDeref,
+    ExtraToken,
+    ExpectedExpression,
+    InvalidOperands,
+    UnexpectedToken { expected: TokenKind<'a> },
     UnusualEndOfTokens,
 }
 
 pub struct ParseError<'a> {
     input: &'a str,
+    index: usize,
     kind: ParseErrorKind<'a>,
 }
 
 impl<'a> std::fmt::Display for ParseError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.kind {
-            ParseErrorKind::ExtraToken { index } => {
-                writeln!(f, "{}", self.input)?;
+        let Self { input, index, kind } = self;
+        match kind {
+            ParseErrorKind::ExtraToken => {
+                writeln!(f, "{input}")?;
                 write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "extra token")
             }
-            ParseErrorKind::UnexpectedToken {
-                ref expected,
-                index,
-            } => {
-                writeln!(f, "{}", self.input)?;
+            ParseErrorKind::UnexpectedToken { expected } => {
+                writeln!(f, "{input}")?;
                 write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "expected `{expected}'")
             }
-            ParseErrorKind::ExpectedExpression { index } => {
-                writeln!(f, "{}", self.input)?;
+            ParseErrorKind::ExpectedExpression => {
+                writeln!(f, "{input}")?;
                 write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "expected an expression")
             }
-            ParseErrorKind::UnusualEndOfTokens => {
-                write!(f, "fatal error: Unusual end of tokens during parsing")
-            }
-            ParseErrorKind::InvalidOperands { index } => {
-                writeln!(f, "{}", self.input)?;
+            ParseErrorKind::InvalidOperands => {
+                writeln!(f, "{input}")?;
                 write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "invalid operands")
+            }
+            ParseErrorKind::InvalidPointerDeref => {
+                writeln!(f, "{input}")?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
+                write!(f, "invalid pointer dereference")
+            }
+            ParseErrorKind::UnusualEndOfTokens => {
+                write!(f, "fatal error: Unusual end of tokens during parsing")
             }
         }
     }
@@ -274,6 +277,7 @@ impl<'a> Parser<'a> {
                 ),
                 info,
             )
+            .map_err(|e| self.err_type_error(e, info.index))?
         }
 
         Ok(node)
@@ -321,7 +325,8 @@ impl<'a> Parser<'a> {
                             Box::new(self.parse_additive()?),
                         ),
                         info,
-                    );
+                    )
+                    .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 TokenKind::Punctuation("<=") => {
                     self.tokens.next();
@@ -332,7 +337,8 @@ impl<'a> Parser<'a> {
                             Box::new(self.parse_additive()?),
                         ),
                         info,
-                    );
+                    )
+                    .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 TokenKind::Punctuation(">") => {
                     self.tokens.next();
@@ -343,7 +349,8 @@ impl<'a> Parser<'a> {
                             Box::new(node),
                         ),
                         info,
-                    );
+                    )
+                    .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 TokenKind::Punctuation(">=") => {
                     self.tokens.next();
@@ -354,7 +361,8 @@ impl<'a> Parser<'a> {
                             Box::new(node),
                         ),
                         info,
-                    );
+                    )
+                    .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 _ => break,
             }
@@ -378,7 +386,8 @@ impl<'a> Parser<'a> {
                             Box::new(self.parse_relational()?),
                         ),
                         info,
-                    );
+                    )
+                    .map_err(|e| self.err_type_error(e, info.index))?
                 }
                 TokenKind::Punctuation("!=") => {
                     self.tokens.next();
@@ -390,6 +399,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
+                    .map_err(|e| self.err_type_error(e, info.index))?
                 }
                 _ => break,
             }
@@ -415,7 +425,8 @@ impl<'a> Parser<'a> {
                 let node = Node::new(
                     NodeKind::unary(UnaryKind::Return, Box::new(self.parse_expression()?)),
                     info,
-                );
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?;
 
                 self.expect_next(TokenKind::Punctuation(";"))?;
 
@@ -442,14 +453,15 @@ impl<'a> Parser<'a> {
                     None
                 };
 
-                Ok(Node::new(
+                Node::new(
                     NodeKind::If {
                         condition,
                         then_block,
                         else_block,
                     },
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))
             }
             Some(&Token {
                 kind: TokenKind::Keyword("for"),
@@ -484,7 +496,7 @@ impl<'a> Parser<'a> {
 
                 let loop_block = Box::new(self.parse_statement()?);
 
-                Ok(Node::new(
+                Node::new(
                     NodeKind::Loop {
                         init,
                         condition,
@@ -492,7 +504,8 @@ impl<'a> Parser<'a> {
                         loop_block,
                     },
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))
             }
             Some(&Token {
                 kind: TokenKind::Keyword("while"),
@@ -504,7 +517,7 @@ impl<'a> Parser<'a> {
                 self.expect_next(TokenKind::Punctuation(")"))?;
                 let loop_block = Box::new(self.parse_statement()?);
 
-                Ok(Node::new(
+                Node::new(
                     NodeKind::Loop {
                         init: None,
                         condition,
@@ -512,7 +525,8 @@ impl<'a> Parser<'a> {
                         loop_block,
                     },
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))
             }
             Some(&Token {
                 kind: TokenKind::Punctuation("{"),
@@ -537,12 +551,13 @@ impl<'a> Parser<'a> {
             compound_statements.push(self.parse_statement()?);
         }
 
-        Ok(Node::new(
+        Node::new(
             NodeKind::Block {
                 compound_statements,
             },
             info,
-        ))
+        )
+        .map_err(|e| self.err_type_error(e, info.index))
     }
 
     // expr-stmt = expr? ";"
@@ -553,10 +568,8 @@ impl<'a> Parser<'a> {
         }) = self.tokens.peek()
         {
             self.tokens.next();
-            return Ok(Node::new(
-                NodeKind::ExprStatement { statements: vec![] },
-                info,
-            ));
+            return Node::new(NodeKind::ExprStatement { statements: vec![] }, info)
+                .map_err(|e| self.err_type_error(e, info.index));
         };
 
         let node = self.parse_expression()?;
@@ -583,10 +596,12 @@ impl<'a> Parser<'a> {
                 Ok(node)
             }
             TokenKind::Identifier(name) => Ok(Node::new(
-                NodeKind::variable(self.function.get_or_allocate_local(name)),
+                NodeKind::variable(self.function.get_or_allocate_local(name, Type::integer())),
                 token.info,
-            )),
-            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::numeric(num), token.info)),
+            )
+            .map_err(|e| self.err_type_error(e, token.info.index))?),
+            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::numeric(num), token.info)
+                .map_err(|e| self.err_type_error(e, token.info.index))?),
             _ => Err(self.err_expected_expression(token.info.index)),
         }
     }
@@ -608,21 +623,24 @@ impl<'a> Parser<'a> {
                 Ok(Node::new(
                     NodeKind::unary(UnaryKind::Negate, Box::new(self.parse_unary()?)),
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::Punctuation("&") => {
                 self.tokens.next();
                 Ok(Node::new(
                     NodeKind::unary(UnaryKind::Address, Box::new(self.parse_unary()?)),
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::Punctuation("*") => {
                 self.tokens.next();
                 Ok(Node::new(
                     NodeKind::unary(UnaryKind::Deref, Box::new(self.parse_unary()?)),
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?)
             }
             _ => self.parse_primary(),
         }
@@ -644,6 +662,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
+                    .map_err(|e| self.err_type_error(e, info.index))?
                 }
                 TokenKind::Punctuation("/") => {
                     self.tokens.next();
@@ -655,6 +674,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
+                    .map_err(|e| self.err_type_error(e, info.index))?
                 }
                 _ => break,
             }
@@ -672,7 +692,8 @@ impl<'a> Parser<'a> {
         dbg!((&lhs, &rhs));
         match (lhs.node_type.as_ref(), rhs.node_type.as_ref()) {
             (Type::Integer, Type::Integer) => {
-                Ok(Node::new(NodeKind::binary(BinaryKind::Add, lhs, rhs), info))
+                Ok(Node::new(NodeKind::binary(BinaryKind::Add, lhs, rhs), info)
+                    .map_err(|e| self.err_type_error(e, info.index))?)
             }
             (Type::Integer, Type::Pointer(_)) | (Type::Pointer(_), Type::Integer) => {
                 let (lhs, rhs) = match rhs.node_type.as_ref() {
@@ -684,17 +705,23 @@ impl<'a> Parser<'a> {
                     NodeKind::binary(
                         BinaryKind::Multiply,
                         rhs,
-                        Box::new(Node::new(NodeKind::numeric(8), info)),
+                        Box::new(
+                            Node::new(NodeKind::numeric(8), info)
+                                .map_err(|e| self.err_type_error(e, info.index))?,
+                        ),
                     ),
                     info,
-                );
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?;
 
-                Ok(Node::new(
-                    NodeKind::binary(BinaryKind::Add, lhs, Box::new(rhs)),
-                    info,
-                ))
+                Ok(
+                    Node::new(NodeKind::binary(BinaryKind::Add, lhs, Box::new(rhs)), info)
+                        .map_err(|e| self.err_type_error(e, info.index))?,
+                )
             }
-            (Type::Pointer(_), Type::Pointer(_)) | _ => Err(self.err_invalid_operands(info.index)),
+            (Type::Pointer(_), Type::Pointer(_)) | _ => {
+                Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info.index))
+            }
         }
     }
 
@@ -708,21 +735,27 @@ impl<'a> Parser<'a> {
             (Type::Integer, Type::Integer) => Ok(Node::new(
                 NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                 info,
-            )),
+            )
+            .map_err(|e| self.err_type_error(e, info.index))?),
             (Type::Pointer(_), Type::Integer) => {
                 let rhs = Node::new(
                     NodeKind::binary(
                         BinaryKind::Multiply,
                         rhs,
-                        Box::new(Node::new(NodeKind::numeric(8), info)),
+                        Box::new(
+                            Node::new(NodeKind::numeric(8), info)
+                                .map_err(|e| self.err_type_error(e, info.index))?,
+                        ),
                     ),
                     info,
-                );
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?;
 
                 Ok(Node::new(
                     NodeKind::binary(BinaryKind::Subtract, lhs, Box::new(rhs)),
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?)
             }
             (Type::Pointer(_), Type::Pointer(_)) => {
                 let difference = Node::new_of_type(
@@ -735,19 +768,29 @@ impl<'a> Parser<'a> {
                     NodeKind::binary(
                         BinaryKind::Divide,
                         Box::new(difference),
-                        Box::new(Node::new(NodeKind::numeric(8), info)),
+                        Box::new(
+                            Node::new(NodeKind::numeric(8), info)
+                                .map_err(|e| self.err_type_error(e, info.index))?,
+                        ),
                     ),
                     info,
-                ))
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?)
             }
-            _ => Err(self.err_invalid_operands(info.index)),
+            _ => Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info.index)),
         }
     }
 
-    fn err_invalid_operands(&self, index: usize) -> ParseError<'a> {
+    fn err_type_error(&self, type_error: TypeError, index: usize) -> ParseError<'a> {
+        let kind = match type_error {
+            TypeError::InvalidPointerDeref => ParseErrorKind::InvalidPointerDeref,
+            TypeError::InvalidOperands => ParseErrorKind::InvalidOperands,
+        };
+
         ParseError {
             input: self.input,
-            kind: ParseErrorKind::InvalidOperands { index },
+            kind,
+            index,
         }
     }
 
@@ -755,13 +798,15 @@ impl<'a> Parser<'a> {
         ParseError {
             input: self.input,
             kind: ParseErrorKind::UnusualEndOfTokens,
+            index: 0,
         }
     }
 
     fn err_expected_expression(&self, index: usize) -> ParseError<'a> {
         ParseError {
             input: self.input,
-            kind: ParseErrorKind::ExpectedExpression { index },
+            kind: ParseErrorKind::ExpectedExpression,
+            index,
         }
     }
 
@@ -770,15 +815,16 @@ impl<'a> Parser<'a> {
             input: self.input,
             kind: ParseErrorKind::UnexpectedToken {
                 expected: expected_kind,
-                index,
             },
+            index,
         }
     }
 
     fn _err_extra_token(&self, index: usize) -> ParseError<'a> {
         ParseError {
             input: self.input,
-            kind: ParseErrorKind::ExtraToken { index },
+            kind: ParseErrorKind::ExtraToken,
+            index,
         }
     }
 }
