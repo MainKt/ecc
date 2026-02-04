@@ -5,7 +5,7 @@ use crate::{
     util::Info,
 };
 use std::{cell::RefCell, collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
-use types::{Type, TypeError};
+use types::{Type, TypeError, TypeKind};
 
 #[derive(Debug)]
 pub struct Node<'a> {
@@ -904,15 +904,15 @@ impl<'a> Parser<'a> {
         rhs: Box<Node<'a>>,
         info: Info,
     ) -> Result<Node<'a>, ParseError<'a>> {
-        dbg!((&lhs, &rhs));
-        match (lhs.node_type.as_ref(), rhs.node_type.as_ref()) {
-            (Type::Integer, Type::Integer) => {
+        match (&&lhs.node_type.kind, &rhs.node_type.kind) {
+            (TypeKind::Integer, TypeKind::Integer) => {
                 Ok(Node::new(NodeKind::binary(BinaryKind::Add, lhs, rhs), info)
                     .map_err(|e| self.err_type_error(e, info.index))?)
             }
-            (Type::Integer, Type::Pointer(_)) | (Type::Pointer(_), Type::Integer) => {
-                let (lhs, rhs) = match rhs.node_type.as_ref() {
-                    Type::Pointer(_) => (rhs, lhs),
+            (TypeKind::Integer, TypeKind::Derived { .. })
+            | (TypeKind::Derived { .. }, TypeKind::Integer) => {
+                let (lhs, rhs) = match rhs.node_type.kind {
+                    TypeKind::Derived { .. } => (rhs, lhs),
                     _ => (lhs, rhs),
                 };
 
@@ -934,7 +934,7 @@ impl<'a> Parser<'a> {
                         .map_err(|e| self.err_type_error(e, info.index))?,
                 )
             }
-            (Type::Pointer(_), Type::Pointer(_)) | _ => {
+            (TypeKind::Derived { .. }, TypeKind::Derived { .. }) | _ => {
                 Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info.index))
             }
         }
@@ -946,13 +946,13 @@ impl<'a> Parser<'a> {
         rhs: Box<Node<'a>>,
         info: Info,
     ) -> Result<Node<'a>, ParseError<'a>> {
-        match (lhs.node_type.as_ref(), rhs.node_type.as_ref()) {
-            (Type::Integer, Type::Integer) => Ok(Node::new(
+        match (&lhs.node_type.kind, &rhs.node_type.kind) {
+            (TypeKind::Integer, TypeKind::Integer) => Ok(Node::new(
                 NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                 info,
             )
             .map_err(|e| self.err_type_error(e, info.index))?),
-            (Type::Pointer(_), Type::Integer) => {
+            (TypeKind::Derived { .. }, TypeKind::Integer) => {
                 let rhs = Node::new(
                     NodeKind::binary(
                         BinaryKind::Multiply,
@@ -972,7 +972,7 @@ impl<'a> Parser<'a> {
                 )
                 .map_err(|e| self.err_type_error(e, info.index))?)
             }
-            (Type::Pointer(_), Type::Pointer(_)) => {
+            (TypeKind::Derived { .. }, TypeKind::Derived { .. }) => {
                 let difference = Node::new_of_type(
                     NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                     info,

@@ -3,10 +3,25 @@ use std::rc::Rc;
 use crate::parser::{BinaryKind, NodeKind, UnaryKind};
 
 #[derive(Debug)]
-pub enum Type {
+pub struct Type {
+    pub kind: TypeKind,
+    pub size: Option<usize>,
+}
+
+#[derive(Debug)]
+pub enum DerivedKind {
+    Array,
+    Pointer,
+}
+
+#[derive(Debug)]
+pub enum TypeKind {
     None,
     Integer,
-    Pointer(Rc<Type>),
+    Derived {
+        kind: DerivedKind,
+        to: Rc<Type>,
+    },
     Function {
         params: Vec<Rc<Type>>,
         return_type: Rc<Type>,
@@ -14,8 +29,14 @@ pub enum Type {
 }
 
 thread_local! {
-    static NONE: Rc<Type> = Rc::new(Type::None);
-    static INTEGER: Rc<Type> = Rc::new(Type::Integer);
+    static NONE: Rc<Type> = Rc::new(Type {
+        kind: TypeKind::None,
+        size: Some(0),
+    });
+    static INTEGER: Rc<Type> = Rc::new(Type {
+        kind: TypeKind::Integer,
+        size: Some(8)
+    });
 }
 
 #[derive(Debug)]
@@ -30,13 +51,22 @@ impl Type {
     }
 
     pub fn pointer_to(to: &Rc<Self>) -> Rc<Self> {
-        Rc::new(Self::Pointer(to.clone()))
+        Rc::new(Self {
+            kind: TypeKind::Derived {
+                kind: DerivedKind::Pointer,
+                to: to.clone(),
+            },
+            size: Some(8),
+        })
     }
 
     pub fn function(return_type: &Rc<Self>) -> Rc<Self> {
-        Rc::new(Self::Function {
-            return_type: return_type.clone(),
-            params: vec![],
+        Rc::new(Self {
+            kind: TypeKind::Function {
+                return_type: return_type.clone(),
+                params: vec![],
+            },
+            size: Some(0),
         })
     }
 
@@ -62,8 +92,8 @@ impl Type {
             NodeKind::Unary { kind, lhs, .. } => match kind {
                 UnaryKind::Negate => Ok(lhs.node_type.clone()),
                 UnaryKind::Address => Ok(Self::pointer_to(&lhs.node_type)),
-                UnaryKind::Deref => match lhs.node_type.as_ref() {
-                    Type::Pointer(to) => Ok(to.clone()),
+                UnaryKind::Deref => match &lhs.node_type.kind {
+                    TypeKind::Derived { to, .. } => Ok(to.clone()),
                     _ => Err(TypeError::InvalidPointerDeref),
                 },
                 UnaryKind::Return => Ok(Self::none()),
