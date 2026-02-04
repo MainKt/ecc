@@ -6,6 +6,18 @@ use crate::{
 };
 
 #[derive(Debug)]
+pub struct Node<'a> {
+    pub kind: NodeKind<'a>,
+    pub info: Info,
+}
+
+impl<'a> Node<'a> {
+    pub fn new(kind: NodeKind<'a>, info: Info) -> Self {
+        Self { kind, info }
+    }
+}
+
+#[derive(Debug)]
 pub enum BinaryKind {
     Add,
     Subtract,
@@ -24,12 +36,6 @@ pub enum UnaryKind {
     Address,
     Deref,
     Return,
-}
-
-#[derive(Debug)]
-pub struct Node<'a> {
-    pub kind: NodeKind<'a>,
-    pub info: Info,
 }
 
 #[derive(Debug)]
@@ -82,10 +88,7 @@ impl<'a> Function<'a> {
         Self {
             locals: HashMap::new(),
             offset: 0,
-            body: Node {
-                kind: NodeKind::Numeric(0),
-                info: Info { index: 0 },
-            },
+            body: Node::new(NodeKind::Numeric(0), Info { index: 0 }),
         }
     }
 
@@ -217,14 +220,14 @@ impl<'a> Parser<'a> {
         }) = self.tokens.peek()
         {
             self.tokens.next();
-            node = Node {
-                kind: NodeKind::Binary {
+            node = Node::new(
+                NodeKind::Binary {
                     kind: BinaryKind::Assign,
                     lhs: Box::new(node),
                     rhs: Box::new(self.parse_assignment()?),
                 },
                 info,
-            }
+            )
         }
 
         Ok(node)
@@ -238,25 +241,25 @@ impl<'a> Parser<'a> {
             match kind {
                 TokenKind::Punctuation("+") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::Add,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_multiplicative()?),
                         },
                         info,
-                    }
+                    )
                 }
                 TokenKind::Punctuation("-") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::Subtract,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_multiplicative()?),
                         },
                         info,
-                    };
+                    );
                 }
                 _ => break,
             }
@@ -273,47 +276,47 @@ impl<'a> Parser<'a> {
             match kind {
                 TokenKind::Punctuation("<") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::LessThan,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_additive()?),
                         },
                         info,
-                    };
+                    );
                 }
                 TokenKind::Punctuation("<=") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::LessThanEqual,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_additive()?),
                         },
                         info,
-                    };
+                    );
                 }
                 TokenKind::Punctuation(">") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::LessThan,
                             lhs: Box::new(self.parse_additive()?),
                             rhs: Box::new(node),
                         },
                         info,
-                    };
+                    );
                 }
                 TokenKind::Punctuation(">=") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::LessThanEqual,
                             lhs: Box::new(self.parse_additive()?),
                             rhs: Box::new(node),
                         },
                         info,
-                    };
+                    );
                 }
                 _ => break,
             }
@@ -330,25 +333,25 @@ impl<'a> Parser<'a> {
             match kind {
                 TokenKind::Punctuation("==") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::Equal,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_relational()?),
                         },
                         info,
-                    };
+                    );
                 }
                 TokenKind::Punctuation("!=") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::NotEqual,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_relational()?),
                         },
                         info,
-                    }
+                    )
                 }
                 _ => break,
             }
@@ -371,13 +374,13 @@ impl<'a> Parser<'a> {
             }) => {
                 self.tokens.next();
 
-                let node = Node {
-                    kind: NodeKind::Unary {
+                let node = Node::new(
+                    NodeKind::Unary {
                         kind: UnaryKind::Return,
                         lhs: Box::new(self.parse_expression()?),
                     },
                     info,
-                };
+                );
 
                 self.expect_next(TokenKind::Punctuation(";"))?;
 
@@ -404,14 +407,14 @@ impl<'a> Parser<'a> {
                     None
                 };
 
-                Ok(Node {
-                    kind: NodeKind::If {
+                Ok(Node::new(
+                    NodeKind::If {
                         condition,
                         then_block,
                         else_block,
                     },
                     info,
-                })
+                ))
             }
             Some(&Token {
                 kind: TokenKind::Keyword("for"),
@@ -446,15 +449,15 @@ impl<'a> Parser<'a> {
 
                 let loop_block = Box::new(self.parse_statement()?);
 
-                Ok(Node {
-                    kind: NodeKind::Loop {
+                Ok(Node::new(
+                    NodeKind::Loop {
                         init,
                         condition,
                         increment,
                         loop_block,
                     },
                     info,
-                })
+                ))
             }
             Some(&Token {
                 kind: TokenKind::Keyword("while"),
@@ -466,15 +469,15 @@ impl<'a> Parser<'a> {
                 self.expect_next(TokenKind::Punctuation(")"))?;
                 let loop_block = Box::new(self.parse_statement()?);
 
-                Ok(Node {
-                    kind: NodeKind::Loop {
+                Ok(Node::new(
+                    NodeKind::Loop {
                         init: None,
                         condition,
                         increment: None,
                         loop_block,
                     },
                     info,
-                })
+                ))
             }
             Some(&Token {
                 kind: TokenKind::Punctuation("{"),
@@ -499,12 +502,12 @@ impl<'a> Parser<'a> {
             compound_statements.push(self.parse_statement()?);
         }
 
-        Ok(Node {
-            kind: NodeKind::Block {
+        Ok(Node::new(
+            NodeKind::Block {
                 compound_statements,
             },
             info,
-        })
+        ))
     }
 
     // expr-stmt = expr? ";"
@@ -515,17 +518,15 @@ impl<'a> Parser<'a> {
         }) = self.tokens.peek()
         {
             self.tokens.next();
-            return Ok(Node {
-                kind: NodeKind::Block {
-                    compound_statements: vec![],
-                },
+            return Ok(Node::new(
+                NodeKind::ExprStatement { statements: vec![] },
                 info,
-            });
+            ));
         };
 
         let node = self.parse_expression()?;
-
         self.expect_next(TokenKind::Punctuation(";"))?;
+
         Ok(node)
     }
 
@@ -546,14 +547,11 @@ impl<'a> Parser<'a> {
                 self.expect_next(TokenKind::Punctuation(")"))?;
                 Ok(node)
             }
-            TokenKind::Identifier(name) => Ok(Node {
-                kind: NodeKind::Variable(self.function.get_or_allocate_local(name)),
-                info: token.info,
-            }),
-            TokenKind::Numeric(num) => Ok(Node {
-                kind: NodeKind::Numeric(num),
-                info: token.info,
-            }),
+            TokenKind::Identifier(name) => Ok(Node::new(
+                NodeKind::Variable(self.function.get_or_allocate_local(name)),
+                token.info,
+            )),
+            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(num), token.info)),
             _ => Err(self.err_expected_expression(token.info.index)),
         }
     }
@@ -572,33 +570,33 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Punctuation("-") => {
                 self.tokens.next();
-                Ok(Node {
-                    kind: NodeKind::Unary {
+                Ok(Node::new(
+                    NodeKind::Unary {
                         kind: UnaryKind::Negate,
                         lhs: Box::new(self.parse_unary()?),
                     },
                     info,
-                })
+                ))
             }
             TokenKind::Punctuation("&") => {
                 self.tokens.next();
-                Ok(Node {
-                    kind: NodeKind::Unary {
+                Ok(Node::new(
+                    NodeKind::Unary {
                         kind: UnaryKind::Address,
                         lhs: Box::new(self.parse_unary()?),
                     },
                     info,
-                })
+                ))
             }
             TokenKind::Punctuation("*") => {
                 self.tokens.next();
-                Ok(Node {
-                    kind: NodeKind::Unary {
+                Ok(Node::new(
+                    NodeKind::Unary {
                         kind: UnaryKind::Deref,
                         lhs: Box::new(self.parse_unary()?),
                     },
                     info,
-                })
+                ))
             }
             _ => self.parse_primary(),
         }
@@ -612,25 +610,25 @@ impl<'a> Parser<'a> {
             match kind {
                 TokenKind::Punctuation("*") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::Multiply,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_unary()?),
                         },
                         info,
-                    }
+                    )
                 }
                 TokenKind::Punctuation("/") => {
                     self.tokens.next();
-                    node = Node {
-                        kind: NodeKind::Binary {
+                    node = Node::new(
+                        NodeKind::Binary {
                             kind: BinaryKind::Divide,
                             lhs: Box::new(node),
                             rhs: Box::new(self.parse_unary()?),
                         },
                         info,
-                    }
+                    )
                 }
                 _ => break,
             }

@@ -89,7 +89,7 @@ impl<'a> CodeGen<'a> {
         self.depth -= 1;
     }
 
-    fn generate_address(&mut self, Node { kind, info }: &Node) -> Result<(), CodeGenError<'a>> {
+    fn generate_address(&mut self, Node { kind, info, .. }: &Node) -> Result<(), CodeGenError<'a>> {
         match kind {
             NodeKind::Variable(object) => {
                 self.instructions
