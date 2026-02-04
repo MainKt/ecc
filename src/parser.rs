@@ -110,6 +110,7 @@ pub struct Object<'a> {
 
 #[derive(Debug)]
 pub struct Function<'a> {
+    name: &'a str,
     body: Node<'a>,
     locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
     offset: usize,
@@ -118,11 +119,16 @@ pub struct Function<'a> {
 impl<'a> Function<'a> {
     pub fn new() -> Self {
         Self {
+            name: "main",
             locals: HashMap::new(),
             offset: 0,
             body: Node::new(NodeKind::Numeric(0), Info { index: 0 })
                 .expect("this wasn't even serious to begin with"),
         }
+    }
+
+    pub fn name(&self) -> &'a str {
+        self.name
     }
 
     pub fn set_body(&mut self, node: Node<'a>) {
@@ -253,7 +259,7 @@ impl<'a> Parser<'a> {
     }
 
     // program = compound-stmt*
-    pub fn parse(mut self) -> Result<Function<'a>, ParseError<'a>> {
+    pub fn parse(mut self) -> Result<Vec<Function<'a>>, ParseError<'a>> {
         let Some(Token {
             kind: TokenKind::Punctuation("{"),
             info,
@@ -265,7 +271,7 @@ impl<'a> Parser<'a> {
         let block = self.parse_compound_statement(info)?;
         self.function.set_body(block);
 
-        Ok(self.function)
+        Ok(vec![self.function])
     }
 
     // assign = equality ("=" assign)?

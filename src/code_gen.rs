@@ -29,21 +29,27 @@ pub struct CodeGen<'a> {
     input: &'a str,
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
-    stack_size: usize,
     block_count: usize,
+    functions: &'a [Function<'a>],
+    current_function: usize,
 }
 
 static ARG_REGISTERS: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
 
 impl<'a> CodeGen<'a> {
-    pub fn new(input: &'a str) -> Self {
+    pub fn new(input: &'a str, functions: &'a [Function<'a>]) -> Self {
         Self {
             input,
             depth: 0,
             instructions: vec![],
-            stack_size: 0,
             block_count: 0,
+            functions,
+            current_function: 0,
         }
+    }
+
+    fn current_fn(&self) -> &'a Function<'a> {
+        &self.functions[self.current_function]
     }
 
     fn next_block_number(&mut self) -> usize {
@@ -51,32 +57,27 @@ impl<'a> CodeGen<'a> {
         self.block_count
     }
 
-    pub fn generate_assembly(
-        mut self,
-        f: &Function,
-    ) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
-        self.stack_size = f.stack_size();
-        self.generate_assembly_for_ast(f.body())
-    }
+    pub fn generate_assembly(mut self) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
+        for current_function in 0..self.functions.len() {
+            self.current_function = current_function;
 
-    fn generate_assembly_for_ast(
-        mut self,
-        node: &Node,
-    ) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
-        self.instructions.push("  .globl main".into());
-        self.instructions.push("main:".into());
+            self.instructions
+                .push(format!("  .globl {}", self.current_fn().name()).into());
+            self.instructions
+                .push(format!("{}:", self.current_fn().name()).into());
+            self.instructions.push("  push %rbp".into());
+            self.instructions.push("  mov %rsp, %rbp".into());
+            self.instructions
+                .push(format!("  sub ${}, %rsp", self.current_fn().stack_size()).into());
 
-        self.instructions.push("  push %rbp".into());
-        self.instructions.push("  mov %rsp, %rbp".into());
-        self.instructions
-            .push(format!("  sub ${}, %rsp", self.stack_size).into());
+            self.traverse(&self.current_fn().body())?;
 
-        self.traverse(&node)?;
-
-        self.instructions.push(".L.return:".into());
-        self.instructions.push("  mov %rbp, %rsp".into());
-        self.instructions.push("  pop %rbp".into());
-        self.instructions.push("  ret".into());
+            self.instructions
+                .push(format!(".L.return.{}:", self.current_fn().name()).into());
+            self.instructions.push("  mov %rbp, %rsp".into());
+            self.instructions.push("  pop %rbp".into());
+            self.instructions.push("  ret".into());
+        }
 
         Ok(self.instructions)
     }
@@ -176,7 +177,8 @@ impl<'a> CodeGen<'a> {
                 }
                 UnaryKind::Return => {
                     self.traverse(lhs)?;
-                    self.instructions.push("  jmp .L.return".into())
+                    self.instructions
+                        .push(format!("  jmp .L.return.{}", self.current_fn().name()).into())
                 }
                 UnaryKind::Address => self.generate_address(lhs)?,
                 UnaryKind::Deref => {

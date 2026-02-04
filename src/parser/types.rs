@@ -7,6 +7,7 @@ pub enum Type {
     None,
     Integer,
     Pointer(Rc<Type>),
+    Function { return_type: Rc<Type> },
 }
 
 thread_local! {
