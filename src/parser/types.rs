@@ -53,7 +53,6 @@ impl Type {
                 UnaryKind::Address => Ok(Self::pointer_to(&lhs.node_type)),
                 UnaryKind::Deref => match lhs.node_type.as_ref() {
                     Type::Pointer(to) => Ok(to.clone()),
-                    // _ => Ok(Self::integer()),
                     _ => Err(TypeError::InvalidPointerDeref),
                 },
                 UnaryKind::Return => Ok(Self::none()),
@@ -62,6 +61,7 @@ impl Type {
             NodeKind::Block { .. } => Ok(Self::none()),
             NodeKind::If { .. } => Ok(Self::none()),
             NodeKind::Loop { .. } => Ok(Self::none()),
+            NodeKind::FunctionCall { .. } => Ok(Self::integer()),
         }
     }
 }

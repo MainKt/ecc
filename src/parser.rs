@@ -59,6 +59,9 @@ pub enum UnaryKind {
 pub enum NodeKind<'a> {
     Numeric(i64),
     Variable(Rc<RefCell<Object<'a>>>),
+    FunctionCall {
+        name: &'a str,
+    },
     Binary {
         kind: BinaryKind,
         lhs: Box<Node<'a>>,
@@ -677,7 +680,7 @@ impl<'a> Parser<'a> {
         self.parse_assignment()
     }
 
-    // primary = "(" expr ")" | ident | num
+    // primary = "(" expr ")" | ident args? | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -689,15 +692,29 @@ impl<'a> Parser<'a> {
                 self.expect_next(TokenKind::Punctuation(")"))?;
                 Ok(node)
             }
-            TokenKind::Identifier(name) => Ok(Node::new(
-                NodeKind::Variable(
-                    self.function
-                        .get_local(name)
-                        .ok_or_else(|| self.err_undefined_variable(info.index))?,
-                ),
-                info,
-            )
-            .map_err(|e| self.err_type_error(e, info.index))?),
+            TokenKind::Identifier(name) => {
+                if let Some(Token {
+                    kind: TokenKind::Punctuation("("),
+                    ..
+                }) = self.tokens.peek()
+                {
+                    self.tokens.next();
+                    let function_call = Node::new(NodeKind::FunctionCall { name }, info)
+                        .map_err(|e| self.err_type_error(e, info.index))?;
+                    self.expect_next(TokenKind::Punctuation(")"))?;
+                    return Ok(function_call);
+                }
+
+                Ok(Node::new(
+                    NodeKind::Variable(
+                        self.function
+                            .get_local(name)
+                            .ok_or_else(|| self.err_undefined_variable(info.index))?,
+                    ),
+                    info,
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?)
+            }
             TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(num), info)
                 .map_err(|e| self.err_type_error(e, info.index))?),
             _ => Err(self.err_expected_expression(info.index)),

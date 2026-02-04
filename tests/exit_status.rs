@@ -1,4 +1,6 @@
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
+
+use tempfile::TempDir;
 
 #[test]
 fn assembly_exit_status() {
@@ -156,6 +158,36 @@ fn while_loop() {
     );
 }
 
+#[test]
+fn function_call() {
+    assert_exit_status("{ return ret3(); }", 3);
+    assert_exit_status("{ return ret5(); }", 5);
+}
+
+fn define_functions(cc: &str, dir: &TempDir) -> PathBuf {
+    let fn_defs = dir.path().join("fn_defs.c");
+    std::fs::write(
+        &fn_defs,
+        r"
+            int ret3() { return 3; }
+            int ret5() { return 5; }
+        ",
+    )
+    .unwrap();
+    let fn_defs_out_path = dir.path().join("fn_defs.o");
+    let fn_defs_cmd = Command::new(&cc)
+        .arg("-xc")
+        .arg("-c")
+        .arg("-o")
+        .arg(&fn_defs_out_path)
+        .arg(&fn_defs)
+        .output()
+        .expect("failed to assemble");
+    assert!(fn_defs_cmd.status.success());
+
+    fn_defs_out_path
+}
+
 fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
     let asm_out = Command::new(compiler)
@@ -174,12 +206,14 @@ fn assert_exit_status(program: &str, expected_status: i32) {
     std::fs::write(&asm_path, &asm_out.stdout).unwrap();
     let exe_path = dir.path().join("exe");
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let fn_defs = define_functions(&cc, &dir);
     assert!(
-        Command::new(cc)
+        Command::new(&cc)
             .arg("-static")
             .arg("-o")
             .arg(&exe_path)
             .arg(&asm_path)
+            .arg(&fn_defs)
             .status()
             .expect("failed to assemble")
             .success()

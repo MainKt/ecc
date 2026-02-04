@@ -244,6 +244,10 @@ impl<'a> CodeGen<'a> {
                     .push(format!("  jmp .L.begin.{block}").into());
                 self.instructions.push(format!(".L.end.{block}:").into());
             }
+            NodeKind::FunctionCall { name } => {
+                self.instructions.push("  mov $0, %rax".into());
+                self.instructions.push(format!("  call {name}").into());
+            }
         }
 
         Ok(())
