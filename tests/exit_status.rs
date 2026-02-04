@@ -14,27 +14,33 @@ fn basic_arithmetic() {
 }
 
 #[test]
+fn multiple_variables() {
+    assert_exit_status("{ int x = 3, y = 5; return x + y;}", 8);
+    assert_exit_status("{ int x, y; int x = 2; int y = 3; return x + y;}", 5);
+}
+
+#[test]
 fn address_of_and_deref() {
-    assert_exit_status("{ x=3; return *&x; }", 3);
-    assert_exit_status("{ x=3; y=&x; z=&y; return **z; }", 3);
-    assert_exit_status("{ x=3; y=&x; *y=5; return x; }", 5);
+    assert_exit_status("{ int x=3; return *&x; }", 3);
+    assert_exit_status("{ int x=3; int y=&x; int **z=&y; return **z; }", 3);
+    assert_exit_status("{ int x=3; int *y=&x; *y=5; return x; }", 5);
 
     // NOTE: commented tests are from chibicc where stack locals is inverted
-    // assert_exit_status("{ x=3; y=5; return *(&x+1); }", 5);
-    assert_exit_status("{ x=3; y=5; return *(&x-1); }", 5);
+    // assert_exit_status("{ int x=3; int y=5; return *(&x+1); }", 5);
+    assert_exit_status("{ int x=3; int y=5; return *(&x-1); }", 5);
 
-    // assert_exit_status("{ x=3; y=5; return *(&y-1); }", 3);
-    assert_exit_status("{ x=3; y=5; return *(&y+1); }", 3);
+    // assert_exit_status("{ int x=3; int y=5; return *(&y-1); }", 3);
+    assert_exit_status("{ int x=3; int y=5; return *(&y+1); }", 3);
 
-    // assert_exit_status("{ x=3; y=5; *(&x+1)=7; return y; }", 7);
-    assert_exit_status("{ x=3; y=5; *(&x-1)=7; return y; }", 7);
+    // assert_exit_status("{ int x=3; int y=5; *(&x+1)=7; return y; }", 7);
+    assert_exit_status("{ int x=3; int y=5; *(&x-1)=7; return y; }", 7);
 
-    // assert_exit_status("{ x=3; y=5; *(&y-1)=7; return x; }", 7);
-    assert_exit_status("{ x=3; y=5; *(&y+1)=7; return x; }", 7);
+    // assert_exit_status("{ int x=3; int y=5; *(&y-1)=7; return x; }", 7);
+    assert_exit_status("{ int x=3; int y=5; *(&y+1)=7; return x; }", 7);
 
-    assert_exit_status(r"{ x = 3; y = 5; return *(&y-(-1)); }", 3);
+    assert_exit_status(r"{ int x = 3; int y = 5; return *(&y-(-1)); }", 3);
 
-    assert_exit_status(r"{ x = 3; return (&x+2)-&x+3; }", 5);
+    assert_exit_status(r"{ int x; x = 3; return (&x+2)-&x+3; }", 5);
 }
 
 #[test]
@@ -60,15 +66,16 @@ fn unary() {
 
 #[test]
 fn single_char_variables() {
-    assert_exit_status("{a=3; return a;}", 3);
-    assert_exit_status("{a=3; z = 5; return a +z;}", 8);
-    assert_exit_status("{a = b = 3; return a + b;}", 6);
+    assert_exit_status("{int a; a=3; return a;}", 3);
+    assert_exit_status("{int a=3; return a;}", 3);
+    assert_exit_status("{int a=3; int z; z = 5; return a +z;}", 8);
+    assert_exit_status("{int a; int b; a = b = 3; return a + b;}", 6);
 }
 
 #[test]
 fn variables() {
-    assert_exit_status("{foo=3; return foo;}", 3);
-    assert_exit_status("{foo123=3; bar=5; return foo123+bar;}", 3 + 5);
+    assert_exit_status("{int foo=3; return foo;}", 3);
+    assert_exit_status("{int foo123=3; int bar=5; return foo123+bar;}", 3 + 5);
 }
 
 #[test]
@@ -130,7 +137,7 @@ fn for_statement() {
         3,
     );
     assert_exit_status(
-        "{ i = 0; j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
+        "{ int i = 0; int j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
         55,
     );
 }
@@ -139,7 +146,7 @@ fn for_statement() {
 fn while_loop() {
     assert_exit_status(
         r"{
-        i = 0;
+        int i = 0;
         while (i < 10) {
             i = i + 1;
         }

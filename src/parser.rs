@@ -1,11 +1,10 @@
 pub mod types;
 
-use std::{cell::RefCell, collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
-
 use crate::{
     lexer::{Token, TokenKind},
     util::Info,
 };
+use std::{cell::RefCell, collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
 use types::{Type, TypeError};
 
 #[derive(Debug)]
@@ -102,10 +101,6 @@ impl<'a> NodeKind<'a> {
     pub fn numeric(value: i64) -> Self {
         Self::Numeric { value }
     }
-
-    pub fn variable(object: Rc<RefCell<Object<'a>>>) -> Self {
-        Self::Variable(object)
-    }
 }
 
 #[derive(Debug)]
@@ -138,6 +133,10 @@ impl<'a> Function<'a> {
 
     pub fn body(&self) -> &Node<'a> {
         &self.body
+    }
+
+    pub fn get_local(&self, name: &str) -> Option<Rc<RefCell<Object<'a>>>> {
+        self.locals.get(name).map(|l| l.clone())
     }
 
     pub fn get_or_allocate_local(
@@ -174,10 +173,12 @@ pub struct Parser<'a> {
 pub enum ParseErrorKind<'a> {
     InvalidPointerDeref,
     ExtraToken,
+    UndefinedVariable,
     ExpectedExpression,
     InvalidOperands,
     UnexpectedToken { expected: TokenKind<'a> },
     UnusualEndOfTokens,
+    ExpectedVariableName,
 }
 
 pub struct ParseError<'a> {
@@ -214,6 +215,16 @@ impl<'a> std::fmt::Display for ParseError<'a> {
                 writeln!(f, "{input}")?;
                 write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "invalid pointer dereference")
+            }
+            ParseErrorKind::ExpectedVariableName => {
+                writeln!(f, "{input}")?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
+                write!(f, "expected a variable name")
+            }
+            ParseErrorKind::UndefinedVariable => {
+                writeln!(f, "{input}")?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
+                write!(f, "undefined variable")
             }
             ParseErrorKind::UnusualEndOfTokens => {
                 write!(f, "fatal error: Unusual end of tokens during parsing")
@@ -408,6 +419,84 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
+    // declspec = "int"
+    fn parse_declaration_spec(&mut self) -> Result<Rc<Type>, ParseError<'a>> {
+        self.expect_next(TokenKind::Keyword("int"))?;
+
+        Ok(Type::integer())
+    }
+
+    // declarator = "*"* ident
+    fn parse_declarator(
+        &mut self,
+        base_type: Rc<Type>,
+    ) -> Result<(Rc<Type>, &'a str), ParseError<'a>> {
+        let mut decl_type = base_type;
+        while let Some(Token {
+            kind: TokenKind::Punctuation("*"),
+            ..
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            decl_type = Type::pointer_to(&decl_type);
+        }
+
+        let Some(Token { kind, info }) = self.tokens.next() else {
+            return Err(self.err_unusual_end_of_tokens());
+        };
+
+        let TokenKind::Identifier(identifier) = kind else {
+            return Err(self.err_expected_variable_name(info.index));
+        };
+
+        Ok((decl_type, identifier))
+    }
+
+    // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
+    fn parse_declaration(&mut self, info: Info) -> Result<Node<'a>, ParseError<'a>> {
+        let base_type = self.parse_declaration_spec()?;
+        let mut statements = vec![];
+        let mut decl_count = 0;
+
+        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+            if let TokenKind::Punctuation(";") = kind {
+                break;
+            }
+
+            if decl_count > 0 {
+                self.expect_next(TokenKind::Punctuation(","))?
+            }
+            decl_count += 1;
+
+            let (decl_type, identifier) = self.parse_declarator(base_type.clone())?;
+            let object = self.function.get_or_allocate_local(identifier, decl_type);
+
+            if let Some(Token {
+                kind: TokenKind::Punctuation("="),
+                ..
+            }) = self.tokens.peek()
+            {
+                self.tokens.next();
+
+                let variable = Node::new(NodeKind::Variable(object), info)
+                    .map_err(|e| self.err_type_error(e, info.index))?;
+                let assignment = Node::new(
+                    NodeKind::binary(
+                        BinaryKind::Assign,
+                        Box::new(variable),
+                        Box::new(self.parse_assignment()?),
+                    ),
+                    info,
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?;
+                statements.push(assignment);
+            }
+        }
+
+        Node::new(NodeKind::ExprStatement { statements }, info)
+            .map_err(|e| self.err_type_error(e, info.index))
+    }
+
     // stmt = "return" expr ";"
     //      | "if" "(" expr ")" stmt ("else" stmt)?
     //      | "for" "(" expr-stmt expr? ";" expr? ")" stmt
@@ -539,7 +628,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // compound-stmt = stmt* "}"
+    // compound-stmt = (declaration | stmt)* "}"
     fn parse_compound_statement(&mut self, info: Info) -> Result<Node<'a>, ParseError<'a>> {
         let mut compound_statements = vec![];
 
@@ -548,7 +637,18 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 break;
             }
-            compound_statements.push(self.parse_statement()?);
+
+            let compound_statement = if let Some(&Token {
+                kind: TokenKind::Keyword("int"),
+                info,
+            }) = self.tokens.peek()
+            {
+                self.parse_declaration(info)
+            } else {
+                self.parse_statement()
+            }?;
+
+            compound_statements.push(compound_statement);
         }
 
         Node::new(
@@ -585,24 +685,28 @@ impl<'a> Parser<'a> {
 
     // primary = "(" expr ")" | ident | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        let Some(token) = self.tokens.next() else {
+        let Some(Token { kind, info }) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
 
-        match token.kind {
+        match kind {
             TokenKind::Punctuation("(") => {
                 let node = self.parse_expression()?;
                 self.expect_next(TokenKind::Punctuation(")"))?;
                 Ok(node)
             }
             TokenKind::Identifier(name) => Ok(Node::new(
-                NodeKind::variable(self.function.get_or_allocate_local(name, Type::integer())),
-                token.info,
+                NodeKind::Variable(
+                    self.function
+                        .get_local(name)
+                        .ok_or_else(|| self.err_undefined_variable(info.index))?,
+                ),
+                info,
             )
-            .map_err(|e| self.err_type_error(e, token.info.index))?),
-            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::numeric(num), token.info)
-                .map_err(|e| self.err_type_error(e, token.info.index))?),
-            _ => Err(self.err_expected_expression(token.info.index)),
+            .map_err(|e| self.err_type_error(e, info.index))?),
+            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::numeric(num), info)
+                .map_err(|e| self.err_type_error(e, info.index))?),
+            _ => Err(self.err_expected_expression(info.index)),
         }
     }
 
@@ -794,11 +898,27 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn err_expected_variable_name(&self, index: usize) -> ParseError<'a> {
+        ParseError {
+            input: self.input,
+            kind: ParseErrorKind::ExpectedVariableName,
+            index,
+        }
+    }
+
     fn err_unusual_end_of_tokens(&self) -> ParseError<'a> {
         ParseError {
             input: self.input,
             kind: ParseErrorKind::UnusualEndOfTokens,
             index: 0,
+        }
+    }
+
+    fn err_undefined_variable(&self, index: usize) -> ParseError<'a> {
+        ParseError {
+            input: self.input,
+            kind: ParseErrorKind::UndefinedVariable,
+            index,
         }
     }
 
