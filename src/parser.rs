@@ -131,6 +131,10 @@ impl<'a> Function<'a> {
         self.name
     }
 
+    pub fn set_name(&mut self, name: &'a str) {
+        self.name = name
+    }
+
     pub fn set_body(&mut self, node: Node<'a>) {
         self.body = node;
     }
@@ -171,7 +175,7 @@ impl<'a> Function<'a> {
 pub struct Parser<'a> {
     input: &'a str,
     tokens: Peekable<IntoIter<Token<'a>>>,
-    function: Function<'a>,
+    function: Option<Function<'a>>,
 }
 
 pub enum ParseErrorKind<'a> {
@@ -242,8 +246,18 @@ impl<'a> Parser<'a> {
         Self {
             input,
             tokens: tokens.into_iter().peekable(),
-            function: Function::new(),
+            function: None,
         }
+    }
+
+    fn take_function(&mut self) -> Function<'a> {
+        self.function
+            .take()
+            .expect("Shouldn't have taken out the function this soon")
+    }
+
+    fn function(&mut self) -> &mut Function<'a> {
+        self.function.get_or_insert_with(|| Function::new())
     }
 
     fn expect_next(&mut self, kind: TokenKind<'a>) -> Result<(), ParseError<'a>> {
@@ -258,20 +272,32 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // program = compound-stmt*
+    // program = function-definition*
     pub fn parse(mut self) -> Result<Vec<Function<'a>>, ParseError<'a>> {
-        let Some(Token {
-            kind: TokenKind::Punctuation("{"),
-            info,
-        }) = self.tokens.next()
-        else {
-            return Err(self.err_unexpected_token(TokenKind::Punctuation("{"), 0));
-        };
+        let mut functions = vec![];
 
-        let block = self.parse_compound_statement(info)?;
-        self.function.set_body(block);
+        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+            if let TokenKind::EOF = kind {
+                break;
+            }
+            functions.push(self.parse_function(info)?)
+        }
+        self.expect_next(TokenKind::EOF)?;
 
-        Ok(vec![self.function])
+        Ok(functions)
+    }
+
+    // function = compound-stmt*
+    fn parse_function(&mut self, info: Info) -> Result<Function<'a>, ParseError<'a>> {
+        let return_type = self.parse_declaration_spec()?;
+        let (_decl_type, identifier) = self.parse_declarator(return_type.clone())?;
+        self.function().set_name(identifier);
+
+        self.expect_next(TokenKind::Punctuation("{"))?;
+        let function_body = self.parse_compound_statement(info)?;
+        self.function().set_body(function_body);
+
+        Ok(self.take_function())
     }
 
     // assign = equality ("=" assign)?
@@ -430,7 +456,22 @@ impl<'a> Parser<'a> {
         Ok(Type::integer())
     }
 
-    // declarator = "*"* ident
+    // type-suffix = ("(" func-params)?
+    fn parse_type_suffix(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
+        if let Some(Token {
+            kind: TokenKind::Punctuation("("),
+            ..
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            self.expect_next(TokenKind::Punctuation(")"))?;
+            return Ok(Type::function(&decl_type));
+        }
+
+        Ok(decl_type)
+    }
+
+    // declarator = "*"* ident type-suffix
     fn parse_declarator(
         &mut self,
         base_type: Rc<Type>,
@@ -453,6 +494,8 @@ impl<'a> Parser<'a> {
             return Err(self.err_expected_variable_name(info.index));
         };
 
+        let decl_type = self.parse_type_suffix(decl_type)?;
+
         Ok((decl_type, identifier))
     }
 
@@ -473,7 +516,7 @@ impl<'a> Parser<'a> {
             decl_count += 1;
 
             let (decl_type, identifier) = self.parse_declarator(base_type.clone())?;
-            let object = self.function.get_or_allocate_local(identifier, decl_type);
+            let object = self.function().get_or_allocate_local(identifier, decl_type);
 
             if let Some(Token {
                 kind: TokenKind::Punctuation("="),
@@ -734,7 +777,7 @@ impl<'a> Parser<'a> {
 
                 Ok(Node::new(
                     NodeKind::Variable(
-                        self.function
+                        self.function()
                             .get_local(name)
                             .ok_or_else(|| self.err_undefined_variable(info.index))?,
                     ),

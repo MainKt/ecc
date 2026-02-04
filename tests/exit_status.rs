@@ -4,133 +4,151 @@ use tempfile::TempDir;
 
 #[test]
 fn assembly_exit_status() {
-    assert_exit_status("{return 0;}", 0);
-    assert_exit_status("{return 1;}", 1);
-    assert_exit_status("{return 42;}", 42);
+    assert_exit_status("int main() {return 0;}", 0);
+    assert_exit_status("int main() {return 1;}", 1);
+    assert_exit_status("int main() {return 42;}", 42);
 }
 
 #[test]
 fn basic_arithmetic() {
-    assert_exit_status("{return 5+20-4;}", 21);
-    assert_exit_status("{return 40-20-4;}", 16);
+    assert_exit_status("int main() {return 5+20-4;}", 21);
+    assert_exit_status("int main() {return 40-20-4;}", 16);
 }
 
 #[test]
 fn multiple_variables() {
-    assert_exit_status("{ int x = 3, y = 5; return x + y;}", 8);
-    assert_exit_status("{ int x, y; int x = 2; int y = 3; return x + y;}", 5);
+    assert_exit_status("int main() { int x = 3, y = 5; return x + y;}", 8);
+    assert_exit_status(
+        "int main() { int x, y; int x = 2; int y = 3; return x + y;}",
+        5,
+    );
 }
 
 #[test]
 fn address_of_and_deref() {
-    assert_exit_status("{ int x=3; return *&x; }", 3);
-    assert_exit_status("{ int x=3; int y=&x; int **z=&y; return **z; }", 3);
-    assert_exit_status("{ int x=3; int *y=&x; *y=5; return x; }", 5);
+    assert_exit_status("int main() { int x=3; return *&x; }", 3);
+    assert_exit_status(
+        "int main() { int x=3; int y=&x; int **z=&y; return **z; }",
+        3,
+    );
+    assert_exit_status("int main() { int x=3; int *y=&x; *y=5; return x; }", 5);
 
     // NOTE: commented tests are from chibicc where stack locals is inverted
-    // assert_exit_status("{ int x=3; int y=5; return *(&x+1); }", 5);
-    assert_exit_status("{ int x=3; int y=5; return *(&x-1); }", 5);
+    // assert_exit_status("int main() { int x=3; int y=5; return *(&x+1); }", 5);
+    assert_exit_status("int main() { int x=3; int y=5; return *(&x-1); }", 5);
 
-    // assert_exit_status("{ int x=3; int y=5; return *(&y-1); }", 3);
-    assert_exit_status("{ int x=3; int y=5; return *(&y+1); }", 3);
+    // assert_exit_status("int main() { int x=3; int y=5; return *(&y-1); }", 3);
+    assert_exit_status("int main() { int x=3; int y=5; return *(&y+1); }", 3);
 
-    // assert_exit_status("{ int x=3; int y=5; *(&x+1)=7; return y; }", 7);
-    assert_exit_status("{ int x=3; int y=5; *(&x-1)=7; return y; }", 7);
+    // assert_exit_status("int main() { int x=3; int y=5; *(&x+1)=7; return y; }", 7);
+    assert_exit_status("int main() { int x=3; int y=5; *(&x-1)=7; return y; }", 7);
 
-    // assert_exit_status("{ int x=3; int y=5; *(&y-1)=7; return x; }", 7);
-    assert_exit_status("{ int x=3; int y=5; *(&y+1)=7; return x; }", 7);
+    // assert_exit_status("int main() { int x=3; int y=5; *(&y-1)=7; return x; }", 7);
+    assert_exit_status("int main() { int x=3; int y=5; *(&y+1)=7; return x; }", 7);
 
-    assert_exit_status(r"{ int x = 3; int y = 5; return *(&y-(-1)); }", 3);
+    assert_exit_status(
+        r"int main() { int x = 3; int y = 5; return *(&y-(-1)); }",
+        3,
+    );
 
-    assert_exit_status(r"{ int x; x = 3; return (&x+2)-&x+3; }", 5);
+    assert_exit_status(r"int main() { int x; x = 3; return (&x+2)-&x+3; }", 5);
 }
 
 #[test]
 fn basic_arithmetic_with_spaces() {
-    assert_exit_status("{return 12 + 34 - 5;}", 41);
-    assert_exit_status("{return 12+34 - 5;}", 41);
-    assert_exit_status("{return  12 + 34 - 5 ;}", 41);
-    assert_exit_status("{return 5+6*7;}", 47);
+    assert_exit_status("int main() {return 12 + 34 - 5;}", 41);
+    assert_exit_status("int main() {return 12+34 - 5;}", 41);
+    assert_exit_status("int main() {return  12 + 34 - 5 ;}", 41);
+    assert_exit_status("int main() {return 5+6*7;}", 47);
 }
 
 #[test]
 fn parentheses() {
-    assert_exit_status("{return 5*(9-6);}", 15);
-    assert_exit_status("{return (3+5)/2;}", 4);
+    assert_exit_status("int main() {return 5*(9-6);}", 15);
+    assert_exit_status("int main() {return (3+5)/2;}", 4);
 }
 
 #[test]
 fn unary() {
-    assert_exit_status("{return -10+20;}", 10);
-    assert_exit_status("{return - -10;}", 10);
-    assert_exit_status("{return - - +10;}", 10);
+    assert_exit_status("int main() {return -10+20;}", 10);
+    assert_exit_status("int main() {return - -10;}", 10);
+    assert_exit_status("int main() {return - - +10;}", 10);
 }
 
 #[test]
 fn single_char_variables() {
-    assert_exit_status("{int a; a=3; return a;}", 3);
-    assert_exit_status("{int a=3; return a;}", 3);
-    assert_exit_status("{int a=3; int z; z = 5; return a +z;}", 8);
-    assert_exit_status("{int a; int b; a = b = 3; return a + b;}", 6);
+    assert_exit_status("int main() {int a; a=3; return a;}", 3);
+    assert_exit_status("int main() {int a=3; return a;}", 3);
+    assert_exit_status("int main() {int a=3; int z; z = 5; return a +z;}", 8);
+    assert_exit_status("int main() {int a; int b; a = b = 3; return a + b;}", 6);
 }
 
 #[test]
 fn variables() {
-    assert_exit_status("{int foo=3; return foo;}", 3);
-    assert_exit_status("{int foo123=3; int bar=5; return foo123+bar;}", 3 + 5);
+    assert_exit_status("int main() {int foo=3; return foo;}", 3);
+    assert_exit_status(
+        "int main() {int foo123=3; int bar=5; return foo123+bar;}",
+        3 + 5,
+    );
 }
 
 #[test]
 fn return_statement() {
-    assert_exit_status("{return 1; 2; 3;}", 1);
-    assert_exit_status("{1; return 2; 3;}", 2);
-    assert_exit_status("{1; 2; return 3;}", 3);
+    assert_exit_status("int main() {return 1; 2; 3;}", 1);
+    assert_exit_status("int main() {1; return 2; 3;}", 2);
+    assert_exit_status("int main() {1; 2; return 3;}", 3);
 }
 
 #[test]
 fn nested_braces() {
-    assert_exit_status("{ {1; {2;} return 3;} }", 3);
+    assert_exit_status("int main() { {1; {2;} return 3;} }", 3);
 }
 
 #[test]
 fn null_blocks() {
-    assert_exit_status("{ ;;; return 5;}", 5);
+    assert_exit_status("int main() { ;;; return 5;}", 5);
 }
 
 #[test]
 fn comparison_operators() {
-    assert_exit_status("{0==1;}", 0);
-    assert_exit_status("{42==42;}", 1);
-    assert_exit_status("{0!=1;}", 1);
-    assert_exit_status("{42!=42;}", 0);
-    assert_exit_status("{0<1;}", 1);
-    assert_exit_status("{1<1;}", 0);
-    assert_exit_status("{2<1;}", 0);
-    assert_exit_status("{0<=1;}", 1);
-    assert_exit_status("{1<=1;}", 1);
-    assert_exit_status("{2<=1;}", 0);
-    assert_exit_status("{1>0;}", 1);
-    assert_exit_status("{1>1;}", 0);
-    assert_exit_status("{1>2;}", 0);
-    assert_exit_status("{1>=0;}", 1);
-    assert_exit_status("{1>=1;}", 1);
-    assert_exit_status("{1>=2;}", 0);
+    assert_exit_status("int main() {0==1;}", 0);
+    assert_exit_status("int main() {42==42;}", 1);
+    assert_exit_status("int main() {0!=1;}", 1);
+    assert_exit_status("int main() {42!=42;}", 0);
+    assert_exit_status("int main() {0<1;}", 1);
+    assert_exit_status("int main() {1<1;}", 0);
+    assert_exit_status("int main() {2<1;}", 0);
+    assert_exit_status("int main() {0<=1;}", 1);
+    assert_exit_status("int main() {1<=1;}", 1);
+    assert_exit_status("int main() {2<=1;}", 0);
+    assert_exit_status("int main() {1>0;}", 1);
+    assert_exit_status("int main() {1>1;}", 0);
+    assert_exit_status("int main() {1>2;}", 0);
+    assert_exit_status("int main() {1>=0;}", 1);
+    assert_exit_status("int main() {1>=1;}", 1);
+    assert_exit_status("int main() {1>=2;}", 0);
 }
 
 #[test]
 fn if_statement() {
-    assert_exit_status("{ if (0) return 2; return 3; }", 3);
-    assert_exit_status("{ if (1-1) return 2; return 3; }", 3);
-    assert_exit_status("{ if (1) return 2; return 3; }", 2);
-    assert_exit_status("{ if (2-1) return 2; return 3; }", 2);
-    assert_exit_status("{ if (0) { 1; 2; return 3; } else { return 4; } }", 4);
-    assert_exit_status("{ if (1) { 1; 2; return 3; } else { return 4; } }", 3);
+    assert_exit_status("int main() { if (0) return 2; return 3; }", 3);
+    assert_exit_status("int main() { if (1-1) return 2; return 3; }", 3);
+    assert_exit_status("int main() { if (1) return 2; return 3; }", 2);
+    assert_exit_status("int main() { if (2-1) return 2; return 3; }", 2);
+    assert_exit_status(
+        "int main() { if (0) { 1; 2; return 3; } else { return 4; } }",
+        4,
+    );
+    assert_exit_status(
+        "int main() { if (1) { 1; 2; return 3; } else { return 4; } }",
+        3,
+    );
 }
 
 #[test]
 fn for_statement() {
     assert_exit_status(
-        r"{
+        r"int main() {
         for (;;) {
             return 3;
         }
@@ -139,7 +157,7 @@ fn for_statement() {
         3,
     );
     assert_exit_status(
-        "{ int i = 0; int j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
+        "int main() { int i = 0; int j = 0; for (i = 0; i <= 10; i = i + 1) j = i + j; return j; }",
         55,
     );
 }
@@ -147,7 +165,7 @@ fn for_statement() {
 #[test]
 fn while_loop() {
     assert_exit_status(
-        r"{
+        r"int main() {
         int i = 0;
         while (i < 10) {
             i = i + 1;
@@ -160,14 +178,17 @@ fn while_loop() {
 
 #[test]
 fn function_call() {
-    assert_exit_status("{ return ret3(); }", 3);
-    assert_exit_status("{ return ret5(); }", 5);
-    assert_exit_status("{ return add(4, 5); }", 9);
-    assert_exit_status("{ return sub(5, 3); }", 2);
-    assert_exit_status("{ return add6(1, 2, 3, 4, 5, 6); }", 21);
-    assert_exit_status("{ return add6(1,2,add6(3,4,5,6,7,8),9,10,11); }", 66);
+    assert_exit_status("int main() { return ret3(); }", 3);
+    assert_exit_status("int main() { return ret5(); }", 5);
+    assert_exit_status("int main() { return add(4, 5); }", 9);
+    assert_exit_status("int main() { return sub(5, 3); }", 2);
+    assert_exit_status("int main() { return add6(1, 2, 3, 4, 5, 6); }", 21);
     assert_exit_status(
-        "{ return add6(1,2,add6(3,add6(4,5,6,7,8,9),10,11,12,13),14,15,16); }",
+        "int main() { return add6(1,2,add6(3,4,5,6,7,8),9,10,11); }",
+        66,
+    );
+    assert_exit_status(
+        "int main() { return add6(1,2,add6(3,add6(4,5,6,7,8,9),10,11,12,13),14,15,16); }",
         136,
     );
 }

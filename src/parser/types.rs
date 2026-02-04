@@ -30,6 +30,12 @@ impl Type {
         Rc::new(Self::Pointer(to.clone()))
     }
 
+    pub fn function(return_type: &Rc<Self>) -> Rc<Self> {
+        Rc::new(Self::Function {
+            return_type: return_type.clone(),
+        })
+    }
+
     pub fn none() -> Rc<Self> {
         NONE.with(|t| t.clone())
     }
