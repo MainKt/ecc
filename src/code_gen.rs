@@ -62,7 +62,7 @@ impl<'a> CodeGen<'a> {
         };
 
         for (name, object) in &translation_unit.objects {
-            let ObjectKind::Function { ref function, .. } = object.borrow().kind else {
+            let ObjectKind::Function { function, .. } = &object.kind else {
                 break;
             };
             self.current_function = name;
@@ -77,7 +77,6 @@ impl<'a> CodeGen<'a> {
                 .push(format!("  sub ${}, %rsp", function.stack_size()).into());
 
             for (param, register) in function.params().iter().zip(ARG_REGISTERS) {
-                let param = param.borrow();
                 self.instructions
                     .push(format!("  mov {register}, {}(%rbp)", param.local_offset()).into());
             }
@@ -108,7 +107,7 @@ impl<'a> CodeGen<'a> {
         match kind {
             NodeKind::Variable(object, ..) => {
                 self.instructions
-                    .push(format!("  lea {}(%rbp), %rax", object.borrow().local_offset()).into());
+                    .push(format!("  lea {}(%rbp), %rax", object.local_offset()).into());
 
                 Ok(())
             }

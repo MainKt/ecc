@@ -88,7 +88,7 @@ impl Type {
     pub fn of(kind: &NodeKind) -> Result<Rc<Self>, TypeError> {
         match kind {
             NodeKind::Numeric { .. } => Ok(Self::integer()),
-            NodeKind::Variable(object) => Ok(object.borrow().object_type.clone()),
+            NodeKind::Variable(object) => Ok(object.object_type.clone()),
             NodeKind::Binary { kind, lhs, .. } => match kind {
                 BinaryKind::Add
                 | BinaryKind::Subtract

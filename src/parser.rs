@@ -4,7 +4,7 @@ use crate::{
     lexer::{Token, TokenKind},
     util::Info,
 };
-use std::{cell::RefCell, collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
+use std::{collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
 use types::{Type, TypeError, TypeKind};
 
 #[derive(Debug)]
@@ -58,7 +58,7 @@ pub enum UnaryKind {
 #[derive(Debug)]
 pub enum NodeKind<'a> {
     Numeric(usize),
-    Variable(Rc<RefCell<Object<'a>>>),
+    Variable(Rc<Object<'a>>),
     FunctionCall {
         name: &'a str,
         args: Vec<Node<'a>>,
@@ -151,7 +151,7 @@ impl<'a> Object<'a> {
 
 #[derive(Debug)]
 pub struct TranslationUnit<'a> {
-    pub objects: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
+    pub objects: HashMap<&'a str, Rc<Object<'a>>>,
 }
 
 impl<'a> TranslationUnit<'a> {
@@ -161,11 +161,8 @@ impl<'a> TranslationUnit<'a> {
         }
     }
 
-    fn allocate(&mut self, name: &'a str, object: Object<'a>) -> Rc<RefCell<Object<'a>>> {
-        let object = self
-            .objects
-            .entry(name)
-            .or_insert_with(|| Rc::new(RefCell::new(object)));
+    fn allocate(&mut self, name: &'a str, object: Object<'a>) -> Rc<Object<'a>> {
+        let object = self.objects.entry(name).or_insert_with(|| Rc::new(object));
 
         Rc::clone(object)
     }
@@ -174,9 +171,9 @@ impl<'a> TranslationUnit<'a> {
 #[derive(Debug)]
 pub struct Function<'a> {
     name: &'a str,
-    params: Vec<Rc<RefCell<Object<'a>>>>,
+    params: Vec<Rc<Object<'a>>>,
     body: Node<'a>,
-    locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
+    locals: HashMap<&'a str, Rc<Object<'a>>>,
     offset: usize,
 }
 
@@ -193,7 +190,7 @@ impl<'a> Function<'a> {
         }
     }
 
-    pub fn params(&self) -> &[Rc<RefCell<Object<'a>>>] {
+    pub fn params(&self) -> &[Rc<Object<'a>>] {
         &self.params
     }
 
@@ -201,7 +198,7 @@ impl<'a> Function<'a> {
         self.name
     }
 
-    fn push_param(&mut self, param: Rc<RefCell<Object<'a>>>) {
+    fn push_param(&mut self, param: Rc<Object<'a>>) {
         self.params.push(param)
     }
 
@@ -217,28 +214,24 @@ impl<'a> Function<'a> {
         &self.body
     }
 
-    fn get_local(&self, name: &str) -> Option<Rc<RefCell<Object<'a>>>> {
+    fn get_local(&self, name: &str) -> Option<Rc<Object<'a>>> {
         self.locals.get(name).map(|l| l.clone())
     }
 
-    fn get_or_allocate_local(
-        &mut self,
-        name: &'a str,
-        object_type: Rc<Type>,
-    ) -> Rc<RefCell<Object<'a>>> {
+    fn get_or_allocate_local(&mut self, name: &'a str, object_type: Rc<Type>) -> Rc<Object<'a>> {
         // NOTE: assigning offsets this way leads to a stack locals order
         // that is inverted compared to chibicc
         let object = self.locals.entry(name).or_insert_with(|| {
             self.offset += object_type.size;
 
-            Rc::new(RefCell::new(Object {
+            Rc::new(Object {
                 name,
                 kind: ObjectKind::Variable,
                 lifetime: Lifetime::Local {
                     offset: -(self.offset as isize),
                 },
                 object_type,
-            }))
+            })
         });
 
         Rc::clone(object)
