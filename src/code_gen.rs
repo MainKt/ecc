@@ -1,5 +1,5 @@
 use crate::parser::{
-    BinaryKind, Node, NodeKind, Object, ObjectKind, UnaryKind,
+    BinaryKind, Function, Lifetime, Node, NodeKind, Object, ObjectKind, UnaryKind,
     types::{DerivedKind, Type, TypeKind},
 };
 use std::{borrow::Cow, rc::Rc};
@@ -53,6 +53,44 @@ impl<'a> CodeGen<'a> {
         self.block_count
     }
 
+    fn emit_data(&mut self, object: &Rc<Object<'_>>) {
+        self.instructions.push("  .data".into());
+        self.instructions
+            .push(format!("  .globl {}", object.name).into());
+        self.instructions.push(format!("{}:", object.name).into());
+        self.instructions
+            .push(format!("  .zero {}", object.object_type.size).into());
+    }
+
+    fn emit_text(&mut self, function: &Function<'a>) -> Result<(), CodeGenError<'a>> {
+        self.current_function = function.name();
+
+        self.instructions
+            .push(format!("  .globl {}", function.name()).into());
+        self.instructions.push("  .text".into());
+        self.instructions
+            .push(format!("{}:", function.name()).into());
+        self.instructions.push("  push %rbp".into());
+        self.instructions.push("  mov %rsp, %rbp".into());
+        self.instructions
+            .push(format!("  sub ${}, %rsp", function.stack_size()).into());
+
+        for (param, register) in function.params().iter().zip(ARG_REGISTERS) {
+            self.instructions
+                .push(format!("  mov {register}, {}(%rbp)", param.local_offset()).into());
+        }
+
+        self.traverse(function.body())?;
+
+        self.instructions
+            .push(format!(".L.return.{}:", function.name()).into());
+        self.instructions.push("  mov %rbp, %rsp".into());
+        self.instructions.push("  pop %rbp".into());
+        self.instructions.push("  ret".into());
+
+        Ok(())
+    }
+
     pub fn generate_assembly(
         mut self,
         object: Object<'a>,
@@ -61,33 +99,12 @@ impl<'a> CodeGen<'a> {
             return Ok(vec![]);
         };
 
-        for (name, object) in &translation_unit.objects {
-            let ObjectKind::Function { function, .. } = &object.kind else {
-                break;
-            };
-            self.current_function = name;
-
-            self.instructions
-                .push(format!("  .globl {}", function.name()).into());
-            self.instructions
-                .push(format!("{}:", function.name()).into());
-            self.instructions.push("  push %rbp".into());
-            self.instructions.push("  mov %rsp, %rbp".into());
-            self.instructions
-                .push(format!("  sub ${}, %rsp", function.stack_size()).into());
-
-            for (param, register) in function.params().iter().zip(ARG_REGISTERS) {
-                self.instructions
-                    .push(format!("  mov {register}, {}(%rbp)", param.local_offset()).into());
+        for object in translation_unit.objects.values() {
+            match &object.kind {
+                ObjectKind::Function { function, .. } => self.emit_text(function)?,
+                ObjectKind::Variable => self.emit_data(object),
+                _ => break,
             }
-
-            self.traverse(function.body())?;
-
-            self.instructions
-                .push(format!(".L.return.{}:", function.name()).into());
-            self.instructions.push("  mov %rbp, %rsp".into());
-            self.instructions.push("  pop %rbp".into());
-            self.instructions.push("  ret".into());
         }
 
         Ok(self.instructions)
@@ -105,9 +122,14 @@ impl<'a> CodeGen<'a> {
 
     fn generate_address(&mut self, Node { kind, info, .. }: &Node) -> Result<(), CodeGenError<'a>> {
         match kind {
-            NodeKind::Variable(object, ..) => {
-                self.instructions
-                    .push(format!("  lea {}(%rbp), %rax", object.local_offset()).into());
+            NodeKind::Variable(object) => {
+                self.instructions.push(
+                    match object.lifetime {
+                        Lifetime::Global => format!("  lea {}(%rip), %rax", object.name),
+                        Lifetime::Local { offset } => format!("  lea {offset}(%rbp), %rax"),
+                    }
+                    .into(),
+                );
 
                 Ok(())
             }

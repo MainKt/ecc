@@ -10,6 +10,32 @@ fn assembly_exit_status() {
 }
 
 #[test]
+fn global_variables() {
+    assert_exit_status("int x; int main() { return x; }", 0);
+    assert_exit_status("int x; int main() { x=3; return x; }", 3);
+    assert_exit_status("int x; int y; int main() { x=3; y=4; return x+y; }", 7);
+    assert_exit_status("int x, y; int main() { x=3; y=4; return x+y; }", 7);
+    assert_exit_status(
+        "int x[4]; int main() { x[0]=0; x[1]=1; x[2]=2; x[3]=3; return x[0]; }",
+        0,
+    );
+    assert_exit_status(
+        "int x[4]; int main() { x[0]=0; x[1]=1; x[2]=2; x[3]=3; return x[1]; }",
+        1,
+    );
+    assert_exit_status(
+        "int x[4]; int main() { x[0]=0; x[1]=1; x[2]=2; x[3]=3; return x[2]; }",
+        2,
+    );
+    assert_exit_status(
+        "int x[4]; int main() { x[0]=0; x[1]=1; x[2]=2; x[3]=3; return x[3]; }",
+        3,
+    );
+    assert_exit_status("int x; int main() { return sizeof(x); }", 8);
+    assert_exit_status("int x[4]; int main() { return sizeof(x); }", 32);
+}
+
+#[test]
 fn sizeof() {
     assert_exit_status("int main() { int x; return sizeof(x); }", 8);
     assert_exit_status("int main() { int x; return sizeof x; }", 8);

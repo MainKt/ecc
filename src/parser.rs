@@ -259,12 +259,41 @@ impl<'a> Function<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Parser<'a> {
     input: &'a str,
     tokens: Peekable<Iter<'a, Token<'a>>>,
     lookahead_tokens: Option<Peekable<Iter<'a, Token<'a>>>>,
     function: Option<Function<'a>>,
     translation_unit: TranslationUnit<'a>,
+}
+
+struct LookaheadGuard<'a, 'b> {
+    parser: &'a mut Parser<'b>,
+    actual_translation_unit: TranslationUnit<'b>,
+    actual_function: Option<Function<'b>>,
+}
+
+impl<'a, 'b> LookaheadGuard<'a, 'b> {
+    fn new(parser: &'a mut Parser<'b>) -> Self {
+        parser.enable_lookahead();
+        let actual_translation_unit =
+            std::mem::replace(&mut parser.translation_unit, TranslationUnit::new());
+        let actual_function = parser.function.take();
+        Self {
+            parser,
+            actual_translation_unit,
+            actual_function,
+        }
+    }
+}
+impl<'a, 'b> Drop for LookaheadGuard<'a, 'b> {
+    fn drop(&mut self) {
+        self.parser.disable_lookahead();
+        self.parser.translation_unit =
+            std::mem::replace(&mut self.actual_translation_unit, TranslationUnit::new());
+        self.parser.function = self.actual_function.take();
+    }
 }
 
 pub enum ParseErrorKind<'a> {
@@ -394,6 +423,21 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn is_following_function(&mut self, decl_type: &Rc<Type>) -> Result<bool, ParseError<'a>> {
+        if let Some(Token {
+            kind: TokenKind::Punctuation(";"),
+            ..
+        }) = self.tokens().peek()
+        {
+            return Ok(false);
+        }
+
+        let guard = LookaheadGuard::new(self);
+        let (_, decl_type) = guard.parser.parse_declarator(decl_type.clone())?;
+
+        Ok(matches!(&decl_type.kind, TypeKind::Function { .. }))
+    }
+
     // program = (function-definition | global-variable)*
     pub fn parse(mut self) -> Result<Object<'a>, ParseError<'a>> {
         while let Some(Token { kind, info }) = self.tokens().peek() {
@@ -402,19 +446,17 @@ impl<'a> Parser<'a> {
             }
 
             let decl_type = self.parse_declaration_spec()?;
-            self.enable_lookahead();
-            self.parse_function(decl_type.clone(), *info)?;
-            self.disable_lookahead();
-
-            self.parse_function(decl_type, *info)?;
-            // self.parse_global_variable(decl_type)?;
+            if self.is_following_function(&decl_type)? {
+                self.parse_function(decl_type.clone(), *info)?;
+            } else {
+                self.parse_global_variable(decl_type)?;
+            }
         }
         self.expect_next(TokenKind::EOF)?;
 
         Ok(Object::global_translation_unit(self.translation_unit))
     }
 
-    #[allow(dead_code)]
     fn parse_global_variable(&mut self, decl_type: Rc<Type>) -> Result<(), ParseError<'a>> {
         let mut variables: Vec<Object> = vec![];
 
