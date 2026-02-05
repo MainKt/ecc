@@ -1,9 +1,8 @@
-use std::{borrow::Cow, rc::Rc};
-
 use crate::parser::{
-    BinaryKind, Function, Node, NodeKind, UnaryKind,
+    BinaryKind, Node, NodeKind, Object, ObjectKind, UnaryKind,
     types::{DerivedKind, Type, TypeKind},
 };
+use std::{borrow::Cow, rc::Rc};
 
 #[derive(Debug)]
 pub enum CodeGenErrorKind {
@@ -33,26 +32,20 @@ pub struct CodeGen<'a> {
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
     block_count: usize,
-    functions: &'a [Function<'a>],
-    current_function: usize,
+    current_function: &'a str,
 }
 
 static ARG_REGISTERS: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
 
 impl<'a> CodeGen<'a> {
-    pub fn new(input: &'a str, functions: &'a [Function<'a>]) -> Self {
+    pub fn new(input: &'a str) -> Self {
         Self {
             input,
             depth: 0,
             instructions: vec![],
             block_count: 0,
-            functions,
-            current_function: 0,
+            current_function: "",
         }
-    }
-
-    fn function(&self) -> &'a Function<'a> {
-        &self.functions[self.current_function]
     }
 
     fn next_block_number(&mut self) -> usize {
@@ -60,29 +53,39 @@ impl<'a> CodeGen<'a> {
         self.block_count
     }
 
-    pub fn generate_assembly(mut self) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
-        for current_function in 0..self.functions.len() {
-            self.current_function = current_function;
+    pub fn generate_assembly(
+        mut self,
+        object: Object<'a>,
+    ) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
+        let ObjectKind::TranslationUnit(translation_unit) = object.kind else {
+            return Ok(vec![]);
+        };
+
+        for (name, object) in &translation_unit.objects {
+            let ObjectKind::Function { ref function, .. } = object.borrow().kind else {
+                break;
+            };
+            self.current_function = name;
 
             self.instructions
-                .push(format!("  .globl {}", self.function().name()).into());
+                .push(format!("  .globl {}", function.name()).into());
             self.instructions
-                .push(format!("{}:", self.function().name()).into());
+                .push(format!("{}:", function.name()).into());
             self.instructions.push("  push %rbp".into());
             self.instructions.push("  mov %rsp, %rbp".into());
             self.instructions
-                .push(format!("  sub ${}, %rsp", self.function().stack_size()).into());
+                .push(format!("  sub ${}, %rsp", function.stack_size()).into());
 
-            for (param, register) in self.function().params().iter().zip(ARG_REGISTERS) {
+            for (param, register) in function.params().iter().zip(ARG_REGISTERS) {
                 let param = param.borrow();
                 self.instructions
-                    .push(format!("  mov {register}, {}(%rbp)", param.offset).into());
+                    .push(format!("  mov {register}, {}(%rbp)", param.local_offset()).into());
             }
 
-            self.traverse(&self.function().body())?;
+            self.traverse(function.body())?;
 
             self.instructions
-                .push(format!(".L.return.{}:", self.function().name()).into());
+                .push(format!(".L.return.{}:", function.name()).into());
             self.instructions.push("  mov %rbp, %rsp".into());
             self.instructions.push("  pop %rbp".into());
             self.instructions.push("  ret".into());
@@ -105,7 +108,7 @@ impl<'a> CodeGen<'a> {
         match kind {
             NodeKind::Variable(object, ..) => {
                 self.instructions
-                    .push(format!("  lea {}(%rbp), %rax", object.borrow().offset).into());
+                    .push(format!("  lea {}(%rbp), %rax", object.borrow().local_offset()).into());
 
                 Ok(())
             }
@@ -203,7 +206,7 @@ impl<'a> CodeGen<'a> {
                 UnaryKind::Return => {
                     self.traverse(lhs)?;
                     self.instructions
-                        .push(format!("  jmp .L.return.{}", self.function().name()).into())
+                        .push(format!("  jmp .L.return.{}", self.current_function).into())
                 }
                 UnaryKind::Address => self.generate_address(lhs)?,
                 UnaryKind::Deref => {

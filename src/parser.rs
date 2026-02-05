@@ -15,7 +15,7 @@ pub struct Node<'a> {
 }
 
 impl<'a> Node<'a> {
-    pub fn new(kind: NodeKind<'a>, info: Info) -> Result<Self, TypeError> {
+    fn new(kind: NodeKind<'a>, info: Info) -> Result<Self, TypeError> {
         let node_type = Type::of(&kind)?;
 
         Ok(Self {
@@ -25,7 +25,7 @@ impl<'a> Node<'a> {
         })
     }
 
-    pub fn new_of_type(kind: NodeKind<'a>, info: Info, node_type: Rc<Type>) -> Self {
+    fn new_of_type(kind: NodeKind<'a>, info: Info, node_type: Rc<Type>) -> Self {
         Self {
             kind,
             info,
@@ -92,20 +92,83 @@ pub enum NodeKind<'a> {
 }
 
 impl<'a> NodeKind<'a> {
-    pub fn binary(kind: BinaryKind, lhs: Box<Node<'a>>, rhs: Box<Node<'a>>) -> Self {
+    fn binary(kind: BinaryKind, lhs: Box<Node<'a>>, rhs: Box<Node<'a>>) -> Self {
         Self::Binary { kind, lhs, rhs }
     }
 
-    pub fn unary(kind: UnaryKind, lhs: Box<Node<'a>>) -> Self {
+    fn unary(kind: UnaryKind, lhs: Box<Node<'a>>) -> Self {
         Self::Unary { kind, lhs }
     }
 }
 
 #[derive(Debug)]
+pub enum Lifetime {
+    Global,
+    Local { offset: isize },
+}
+
+#[derive(Debug)]
 pub struct Object<'a> {
     pub name: &'a str,
-    pub offset: isize,
+    pub kind: ObjectKind<'a>,
+    pub lifetime: Lifetime,
     pub object_type: Rc<Type>,
+}
+
+#[derive(Debug)]
+pub enum ObjectKind<'a> {
+    Function { function: Function<'a> },
+    Variable,
+    TranslationUnit(TranslationUnit<'a>),
+}
+
+impl<'a> Object<'a> {
+    pub fn local_offset(&self) -> isize {
+        match self.lifetime {
+            Lifetime::Global => 0,
+            Lifetime::Local { offset } => offset,
+        }
+    }
+
+    fn global_translation_unit(tu: TranslationUnit<'a>) -> Self {
+        Self {
+            name: "<global>",
+            kind: ObjectKind::TranslationUnit(tu),
+            lifetime: Lifetime::Global,
+            object_type: Type::none(),
+        }
+    }
+
+    fn function(function: Function<'a>, object_type: Rc<Type>, lifetime: Lifetime) -> Self {
+        Self {
+            name: function.name,
+            kind: ObjectKind::Function { function },
+            lifetime,
+            object_type,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TranslationUnit<'a> {
+    pub objects: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
+}
+
+impl<'a> TranslationUnit<'a> {
+    pub fn new() -> Self {
+        Self {
+            objects: HashMap::new(),
+        }
+    }
+
+    fn allocate(&mut self, name: &'a str, object: Object<'a>) -> Rc<RefCell<Object<'a>>> {
+        let object = self
+            .objects
+            .entry(name)
+            .or_insert_with(|| Rc::new(RefCell::new(object)));
+
+        Rc::clone(object)
+    }
 }
 
 #[derive(Debug)]
@@ -113,12 +176,12 @@ pub struct Function<'a> {
     name: &'a str,
     params: Vec<Rc<RefCell<Object<'a>>>>,
     body: Node<'a>,
-    pub locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
+    locals: HashMap<&'a str, Rc<RefCell<Object<'a>>>>,
     offset: usize,
 }
 
 impl<'a> Function<'a> {
-    pub fn new() -> Self {
+    fn new() -> Self {
         // get rid of this someday :(
         Self {
             name: "",
@@ -138,15 +201,15 @@ impl<'a> Function<'a> {
         self.name
     }
 
-    pub fn push_param(&mut self, param: Rc<RefCell<Object<'a>>>) {
+    fn push_param(&mut self, param: Rc<RefCell<Object<'a>>>) {
         self.params.push(param)
     }
 
-    pub fn set_name(&mut self, name: &'a str) {
+    fn set_name(&mut self, name: &'a str) {
         self.name = name
     }
 
-    pub fn set_body(&mut self, node: Node<'a>) {
+    fn set_body(&mut self, node: Node<'a>) {
         self.body = node;
     }
 
@@ -154,11 +217,11 @@ impl<'a> Function<'a> {
         &self.body
     }
 
-    pub fn get_local(&self, name: &str) -> Option<Rc<RefCell<Object<'a>>>> {
+    fn get_local(&self, name: &str) -> Option<Rc<RefCell<Object<'a>>>> {
         self.locals.get(name).map(|l| l.clone())
     }
 
-    pub fn get_or_allocate_local(
+    fn get_or_allocate_local(
         &mut self,
         name: &'a str,
         object_type: Rc<Type>,
@@ -170,7 +233,10 @@ impl<'a> Function<'a> {
 
             Rc::new(RefCell::new(Object {
                 name,
-                offset: -(self.offset as isize),
+                kind: ObjectKind::Variable,
+                lifetime: Lifetime::Local {
+                    offset: -(self.offset as isize),
+                },
                 object_type,
             }))
         });
@@ -295,24 +361,33 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // program = function-definition*
-    pub fn parse(mut self) -> Result<Vec<Function<'a>>, ParseError<'a>> {
-        let mut functions = vec![];
+    // program = (function-definition | global-variable)*
+    pub fn parse(mut self) -> Result<Object<'a>, ParseError<'a>> {
+        let mut translation_unit = TranslationUnit::new();
 
         while let Some(&Token { ref kind, info }) = self.tokens.peek() {
             if let TokenKind::EOF = kind {
                 break;
             }
-            functions.push(self.parse_function(info)?)
+
+            let return_type = self.parse_declaration_spec()?;
+            let function = self.parse_function(return_type.clone(), info)?;
+            translation_unit.allocate(
+                function.name,
+                Object::function(function, return_type, Lifetime::Global),
+            );
         }
         self.expect_next(TokenKind::EOF)?;
 
-        Ok(functions)
+        Ok(Object::global_translation_unit(translation_unit))
     }
 
     // function = compound-stmt*
-    fn parse_function(&mut self, info: Info) -> Result<Function<'a>, ParseError<'a>> {
-        let return_type = self.parse_declaration_spec()?;
+    fn parse_function(
+        &mut self,
+        return_type: Rc<Type>,
+        info: Info,
+    ) -> Result<Function<'a>, ParseError<'a>> {
         let (identifier, _decl_type) = self.parse_declarator(return_type.clone())?;
         self.function().set_name(identifier);
 
@@ -962,7 +1037,7 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    pub fn parse_addition(
+    fn parse_addition(
         &self,
         lhs: Box<Node<'a>>,
         rhs: Box<Node<'a>>,
@@ -1005,7 +1080,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_subtraction(
+    fn parse_subtraction(
         &self,
         lhs: Box<Node<'a>>,
         rhs: Box<Node<'a>>,
