@@ -2,9 +2,9 @@ pub mod types;
 
 use crate::{
     lexer::{Token, TokenKind},
-    util::Info,
+    util::{self, Info},
 };
-use std::{collections::HashMap, iter::Peekable, rc::Rc, slice::Iter};
+use std::{borrow::Cow, collections::HashMap, iter::Peekable, rc::Rc, slice::Iter};
 use types::{Type, TypeError, TypeKind};
 
 #[derive(Debug)]
@@ -109,7 +109,7 @@ pub enum Lifetime {
 
 #[derive(Debug)]
 pub struct Object<'a> {
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
     pub kind: ObjectKind<'a>,
     pub lifetime: Lifetime,
     pub object_type: Rc<Type>,
@@ -118,7 +118,7 @@ pub struct Object<'a> {
 #[derive(Debug)]
 pub enum ObjectKind<'a> {
     Function { function: Function<'a> },
-    Variable,
+    Variable { initial_data: Vec<u8> },
     TranslationUnit(TranslationUnit<'a>),
 }
 
@@ -130,18 +130,28 @@ impl<'a> Object<'a> {
         }
     }
 
-    fn global_variable(name: &'a str, object_type: Rc<Type>) -> Self {
+    fn global_variable_with_data(
+        name: Cow<'a, str>,
+        object_type: Rc<Type>,
+        initial_data: Vec<u8>,
+    ) -> Self {
         Self {
-            name,
-            kind: ObjectKind::Variable,
+            name: name.into(),
+            kind: ObjectKind::Variable {
+                initial_data: initial_data.into(),
+            },
             lifetime: Lifetime::Global,
             object_type,
         }
     }
 
+    fn global_variable(name: &'a str, object_type: Rc<Type>) -> Self {
+        Self::global_variable_with_data(name.into(), object_type, vec![])
+    }
+
     fn global_translation_unit(tu: TranslationUnit<'a>) -> Self {
         Self {
-            name: "<global>",
+            name: "<global>".into(),
             kind: ObjectKind::TranslationUnit(tu),
             lifetime: Lifetime::Global,
             object_type: Type::none(),
@@ -150,7 +160,7 @@ impl<'a> Object<'a> {
 
     fn function(function: Function<'a>, object_type: Rc<Type>, lifetime: Lifetime) -> Self {
         Self {
-            name: function.name,
+            name: function.name.into(),
             kind: ObjectKind::Function { function },
             lifetime,
             object_type,
@@ -160,7 +170,7 @@ impl<'a> Object<'a> {
 
 #[derive(Debug)]
 pub struct TranslationUnit<'a> {
-    pub objects: HashMap<&'a str, Rc<Object<'a>>>,
+    pub objects: HashMap<Cow<'a, str>, Rc<Object<'a>>>,
 }
 
 impl<'a> TranslationUnit<'a> {
@@ -170,13 +180,13 @@ impl<'a> TranslationUnit<'a> {
         }
     }
 
-    fn _get_or_allocate(&mut self, name: &'a str, object: Object<'a>) -> Rc<Object<'a>> {
+    fn get_or_allocate(&mut self, name: Cow<'a, str>, object: Object<'a>) -> Rc<Object<'a>> {
         let object = self.objects.entry(name).or_insert_with(|| Rc::new(object));
 
         Rc::clone(object)
     }
 
-    fn allocate(&mut self, name: &'a str, object: Object<'a>) {
+    fn allocate(&mut self, name: Cow<'a, str>, object: Object<'a>) {
         self.objects.entry(name).or_insert_with(|| Rc::new(object));
     }
 
@@ -242,8 +252,10 @@ impl<'a> Function<'a> {
             self.offset += object_type.size;
 
             Rc::new(Object {
-                name,
-                kind: ObjectKind::Variable,
+                name: name.into(),
+                kind: ObjectKind::Variable {
+                    initial_data: vec![],
+                },
                 lifetime: Lifetime::Local {
                     offset: -(self.offset as isize),
                 },
@@ -475,7 +487,8 @@ impl<'a> Parser<'a> {
         self.expect_next(TokenKind::Punctuation(";"))?;
 
         for variable in variables {
-            self.translation_unit.allocate(variable.name, variable);
+            self.translation_unit
+                .allocate(variable.name.clone(), variable);
         }
 
         Ok(())
@@ -492,7 +505,7 @@ impl<'a> Parser<'a> {
 
         let function = self.take_function();
         self.translation_unit.allocate(
-            function.name,
+            function.name.into(),
             Object::function(function, decl_type, Lifetime::Global),
         );
 
@@ -1035,7 +1048,7 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // primary = "(" expr ")" | "sizeof" unary | ident func-args? | num
+    // primary = "(" expr ")" | "sizeof" unary | ident func-args? | str | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -1059,6 +1072,20 @@ impl<'a> Parser<'a> {
                 }
 
                 let object = self.get_variable(name, info)?;
+                Ok(Node::new(NodeKind::Variable(object), info)
+                    .map_err(|e| self.err_type_error(e, info.index))?)
+            }
+            TokenKind::String(string) => {
+                let mut string = string.as_bytes().to_vec();
+                string.push(0); // null terminate
+                let object = Object::global_variable_with_data(
+                    util::unique_name().into(),
+                    Type::array_of(&Type::char(), string.len()),
+                    string,
+                );
+                let object = self
+                    .translation_unit
+                    .get_or_allocate(object.name.clone(), object);
                 Ok(Node::new(NodeKind::Variable(object), info)
                     .map_err(|e| self.err_type_error(e, info.index))?)
             }

@@ -342,6 +342,17 @@ fn function_call() {
 }
 
 #[test]
+fn string_literal() {
+    assert_exit_status(r#"int main() { return ""[0]; }"#, 0);
+    assert_exit_status(r#"int main() { return sizeof(""); }"#, 1);
+    assert_exit_status(r#"int main() { return "abc"[0]; }"#, 97);
+    assert_exit_status(r#"int main() { return "abc"[1]; }"#, 98);
+    assert_exit_status(r#"int main() { return "abc"[2]; }"#, 99);
+    assert_exit_status(r#"int main() { return "abc"[3]; }"#, 0);
+    assert_exit_status(r#"int main() { return sizeof("abc"); }"#, 4);
+}
+
+#[test]
 fn char_type() {
     assert_exit_status("int main() { char x=1; return x; }", 1);
     assert_exit_status("int main() { char x=1; char y=2; return x; }", 1);
@@ -412,7 +423,9 @@ fn assert_exit_status(program: &str, expected_status: i32) {
             .arg(&fn_defs)
             .status()
             .expect("failed to assemble")
-            .success()
+            .success(),
+        "\nprogram: {program}\nassembly:\n---------\n{}\n---------",
+        String::from_utf8(asm_out.stdout).unwrap(),
     );
 
     let assemble = Command::new(exe_path).output().expect("failed to assemble");

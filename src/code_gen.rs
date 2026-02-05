@@ -54,13 +54,18 @@ impl<'a> CodeGen<'a> {
         self.block_count
     }
 
-    fn emit_data(&mut self, object: &Rc<Object<'_>>) {
+    fn emit_data(&mut self, object: &Rc<Object<'_>>, initial_data: &[u8]) {
         self.instructions.push("  .data".into());
         self.instructions
             .push(format!("  .globl {}", object.name).into());
         self.instructions.push(format!("{}:", object.name).into());
-        self.instructions
-            .push(format!("  .zero {}", object.object_type.size).into());
+        if initial_data.is_empty() {
+            self.instructions
+                .push(format!("  .zero {}", object.object_type.size).into());
+        } else {
+            self.instructions
+                .extend(initial_data.iter().map(|d| format!("  .byte {d}").into()));
+        }
     }
 
     fn emit_text(&mut self, function: &Function<'a>) -> Result<(), CodeGenError<'a>> {
@@ -112,7 +117,7 @@ impl<'a> CodeGen<'a> {
         for object in translation_unit.objects.values() {
             match &object.kind {
                 ObjectKind::Function { function, .. } => self.emit_text(function)?,
-                ObjectKind::Variable => self.emit_data(object),
+                ObjectKind::Variable { initial_data } => self.emit_data(object, &initial_data),
                 _ => break,
             }
         }

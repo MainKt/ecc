@@ -4,6 +4,7 @@ use crate::util::Info;
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
+    String(&'a str),
     Identifier(&'a str),
     Keyword(&'a str),
     Punctuation(&'a str),
@@ -19,6 +20,7 @@ impl<'a> std::fmt::Display for TokenKind<'a> {
             TokenKind::EOF => write!(f, "End Of File"),
             TokenKind::Identifier(name) => write!(f, "{name}"),
             TokenKind::Keyword(keyword) => write!(f, "{keyword}"),
+            TokenKind::String(string) => write!(f, "{string}"),
         }
     }
 }
@@ -35,27 +37,28 @@ pub struct Lexer<'a> {
 }
 
 pub enum LexErrorKind {
-    InvalidToken { index: usize },
+    InvalidToken,
+    UnclosedStringLiteral,
 }
 
 pub struct LexError<'a> {
     input: &'a str,
     kind: LexErrorKind,
-}
-
-impl<'a> LexError<'a> {
-    pub fn new(input: &'a str, kind: LexErrorKind) -> Self {
-        Self { input, kind }
-    }
+    index: usize,
 }
 
 impl<'a> std::fmt::Display for LexError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.kind {
-            LexErrorKind::InvalidToken { index } => {
+            LexErrorKind::InvalidToken => {
                 writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
+                write!(f, "{:>width$}^ ", "", width = self.index)?;
                 write!(f, "invalid token")
+            }
+            LexErrorKind::UnclosedStringLiteral => {
+                writeln!(f, "{}", self.input)?;
+                write!(f, "{:>width$}^ ", "", width = self.index)?;
+                write!(f, "unclosed string literal")
             }
         }
     }
@@ -100,6 +103,27 @@ impl<'a> Lexer<'a> {
 
                     tokens.push(Token {
                         kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
+                        info: Info { index },
+                    });
+                }
+                '"' => {
+                    let mut length = 0;
+                    while let Some((_, c)) = self.chars.peek()
+                        && *c != '"'
+                    {
+                        if matches!(c, '\n' | '\0') {
+                            return Err(self.err_unclosed_string_literal(index));
+                        }
+                        self.chars.next();
+                        length += 1;
+                    }
+                    let Some((_, '"')) = self.chars.next() else {
+                        return Err(self.err_unclosed_string_literal(index));
+                    };
+
+                    let string = &self.input[index + 1..index + 1 + length];
+                    tokens.push(Token {
+                        kind: TokenKind::String(string),
                         info: Info { index },
                     });
                 }
@@ -167,7 +191,19 @@ impl<'a> Lexer<'a> {
         .any(|&keyword| s == keyword)
     }
 
-    pub fn err_invalid_token(self, index: usize) -> LexError<'a> {
-        LexError::new(self.input, LexErrorKind::InvalidToken { index })
+    fn err_unclosed_string_literal(self, index: usize) -> LexError<'a> {
+        LexError {
+            input: self.input,
+            kind: LexErrorKind::UnclosedStringLiteral,
+            index,
+        }
+    }
+
+    fn err_invalid_token(self, index: usize) -> LexError<'a> {
+        LexError {
+            input: self.input,
+            kind: LexErrorKind::InvalidToken,
+            index,
+        }
     }
 }
