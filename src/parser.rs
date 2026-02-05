@@ -814,6 +814,32 @@ impl<'a> Parser<'a> {
             .map_err(|e| self.err_type_error(e, info.index))
     }
 
+    // postfix = primary ("[" expr "]")*
+    fn parse_postfix(&mut self) -> Result<Node<'a>, ParseError<'a>> {
+        let mut node = self.parse_primary()?;
+
+        while let Some(&Token {
+            kind: TokenKind::Punctuation("["),
+            info,
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            let index = self.parse_expression()?;
+            self.expect_next(TokenKind::Punctuation("]"))?;
+
+            node = Node::new(
+                NodeKind::unary(
+                    UnaryKind::Deref,
+                    Box::new(self.parse_addition(Box::new(node), Box::new(index), info)?),
+                ),
+                info,
+            )
+            .map_err(|e| self.err_type_error(e, info.index))?
+        }
+
+        Ok(node)
+    }
+
     // primary = "(" expr ")" | ident func-args? | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens.next() else {
@@ -853,7 +879,7 @@ impl<'a> Parser<'a> {
     }
 
     // unary = ("*" | "-" | "*" | "&" ) unary
-    //         | primary
+    //         | postfix
     fn parse_unary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(&Token { ref kind, info }) = self.tokens.peek() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -889,7 +915,7 @@ impl<'a> Parser<'a> {
                 )
                 .map_err(|e| self.err_type_error(e, info.index))?)
             }
-            _ => self.parse_primary(),
+            _ => self.parse_postfix(),
         }
     }
 

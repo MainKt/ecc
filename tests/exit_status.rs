@@ -10,6 +10,54 @@ fn assembly_exit_status() {
 }
 
 #[test]
+fn array_indexing() {
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; x[1]=4; x[2]=5; return *x; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; x[1]=4; x[2]=5; return *(x+1); }",
+        4,
+    );
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; x[1]=4; x[2]=5; return *(x+2); }",
+        5,
+    );
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; x[1]=4; x[2]=5; return *(x+2); }",
+        5,
+    );
+    assert_exit_status(
+        "int main() { int x[3]; *x=3; x[1]=4; 2[x]=5; return *(x+2); }",
+        5,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; y[0]=0; return x[0][0]; }",
+        0,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; y[1]=1; return x[0][1]; }",
+        1,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; y[2]=2; return x[0][2]; }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; y[3]=3; return x[1][0]; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; y[4]=4; return x[1][1]; }",
+        4,
+    );
+    assert_exit_status(
+        "int main() { int x[2][3]; int *y=x; y[5]=5; return x[1][2]; }",
+        5,
+    );
+}
+
+#[test]
 fn multi_param_functions() {
     assert_exit_status(
         "int main() { return add2(3,4); } int add2(int x, int y) { return x+y; }",
