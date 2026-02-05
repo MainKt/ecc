@@ -15,7 +15,7 @@ fn main() {
         Err(err) => util::errx(&format!("{err}")),
     };
 
-    let parser = Parser::new(&input, tokens);
+    let parser = Parser::new(&input, &tokens);
     let ast = match parser.parse() {
         Ok(ast) => ast,
         Err(err) => util::errx(&format!("{err}")),

@@ -4,7 +4,7 @@ use crate::{
     lexer::{Token, TokenKind},
     util::Info,
 };
-use std::{collections::HashMap, iter::Peekable, rc::Rc, vec::IntoIter};
+use std::{collections::HashMap, iter::Peekable, rc::Rc, slice::Iter};
 use types::{Type, TypeError, TypeKind};
 
 #[derive(Debug)]
@@ -130,6 +130,15 @@ impl<'a> Object<'a> {
         }
     }
 
+    fn global_variable(name: &'a str, object_type: Rc<Type>) -> Self {
+        Self {
+            name,
+            kind: ObjectKind::Variable,
+            lifetime: Lifetime::Global,
+            object_type,
+        }
+    }
+
     fn global_translation_unit(tu: TranslationUnit<'a>) -> Self {
         Self {
             name: "<global>",
@@ -161,10 +170,18 @@ impl<'a> TranslationUnit<'a> {
         }
     }
 
-    fn allocate(&mut self, name: &'a str, object: Object<'a>) -> Rc<Object<'a>> {
+    fn _get_or_allocate(&mut self, name: &'a str, object: Object<'a>) -> Rc<Object<'a>> {
         let object = self.objects.entry(name).or_insert_with(|| Rc::new(object));
 
         Rc::clone(object)
+    }
+
+    fn allocate(&mut self, name: &'a str, object: Object<'a>) {
+        self.objects.entry(name).or_insert_with(|| Rc::new(object));
+    }
+
+    fn get_object(&self, name: &str) -> Option<Rc<Object<'a>>> {
+        self.objects.get(name).map(|g| g.clone())
     }
 }
 
@@ -244,8 +261,10 @@ impl<'a> Function<'a> {
 
 pub struct Parser<'a> {
     input: &'a str,
-    tokens: Peekable<IntoIter<Token<'a>>>,
+    tokens: Peekable<Iter<'a, Token<'a>>>,
+    lookahead_tokens: Option<Peekable<Iter<'a, Token<'a>>>>,
     function: Option<Function<'a>>,
+    translation_unit: TranslationUnit<'a>,
 }
 
 pub enum ParseErrorKind<'a> {
@@ -324,11 +343,13 @@ impl<'a> std::fmt::Display for ParseError<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, tokens: Vec<Token<'a>>) -> Self {
+    pub fn new(input: &'a str, tokens: &'a [Token<'a>]) -> Self {
         Self {
             input,
-            tokens: tokens.into_iter().peekable(),
+            tokens: tokens.iter().peekable(),
+            lookahead_tokens: None,
             function: None,
+            translation_unit: TranslationUnit::new(),
         }
     }
 
@@ -343,7 +364,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_next(&mut self, kind: TokenKind<'a>) -> Result<(), ParseError<'a>> {
-        let Some(token) = self.tokens.next() else {
+        let Some(token) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
 
@@ -354,60 +375,105 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn enable_lookahead(&mut self) {
+        if self.lookahead_tokens.is_some() {
+            return;
+        }
+        self.lookahead_tokens = Some(self.tokens.clone());
+    }
+
+    fn disable_lookahead(&mut self) {
+        self.lookahead_tokens = None;
+    }
+
+    fn tokens(&mut self) -> &mut Peekable<Iter<'a, Token<'a>>> {
+        if let Some(tokens) = &mut self.lookahead_tokens {
+            tokens
+        } else {
+            &mut self.tokens
+        }
+    }
+
     // program = (function-definition | global-variable)*
     pub fn parse(mut self) -> Result<Object<'a>, ParseError<'a>> {
-        let mut translation_unit = TranslationUnit::new();
-
-        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+        while let Some(Token { kind, info }) = self.tokens().peek() {
             if let TokenKind::EOF = kind {
                 break;
             }
 
-            let return_type = self.parse_declaration_spec()?;
-            let function = self.parse_function(return_type.clone(), info)?;
-            translation_unit.allocate(
-                function.name,
-                Object::function(function, return_type, Lifetime::Global),
-            );
+            let decl_type = self.parse_declaration_spec()?;
+            self.enable_lookahead();
+            self.parse_function(decl_type.clone(), *info)?;
+            self.disable_lookahead();
+
+            self.parse_function(decl_type, *info)?;
+            // self.parse_global_variable(decl_type)?;
         }
         self.expect_next(TokenKind::EOF)?;
 
-        Ok(Object::global_translation_unit(translation_unit))
+        Ok(Object::global_translation_unit(self.translation_unit))
+    }
+
+    #[allow(dead_code)]
+    fn parse_global_variable(&mut self, decl_type: Rc<Type>) -> Result<(), ParseError<'a>> {
+        let mut variables: Vec<Object> = vec![];
+
+        while let Some(Token { kind, .. }) = self.tokens().peek() {
+            if let TokenKind::Punctuation(";") = kind {
+                break;
+            }
+
+            if !variables.is_empty() {
+                self.expect_next(TokenKind::Punctuation(","))?
+            }
+
+            let (name, variable_type) = self.parse_declarator(decl_type.clone())?;
+            variables.push(Object::global_variable(name, variable_type));
+        }
+        self.expect_next(TokenKind::Punctuation(";"))?;
+
+        for variable in variables {
+            self.translation_unit.allocate(variable.name, variable);
+        }
+
+        Ok(())
     }
 
     // function = compound-stmt*
-    fn parse_function(
-        &mut self,
-        return_type: Rc<Type>,
-        info: Info,
-    ) -> Result<Function<'a>, ParseError<'a>> {
-        let (identifier, _decl_type) = self.parse_declarator(return_type.clone())?;
+    fn parse_function(&mut self, return_type: Rc<Type>, info: Info) -> Result<(), ParseError<'a>> {
+        let (identifier, decl_type) = self.parse_declarator(return_type.clone())?;
         self.function().set_name(identifier);
 
         self.expect_next(TokenKind::Punctuation("{"))?;
         let function_body = self.parse_compound_statement(info)?;
         self.function().set_body(function_body);
 
-        Ok(self.take_function())
+        let function = self.take_function();
+        self.translation_unit.allocate(
+            function.name,
+            Object::function(function, decl_type, Lifetime::Global),
+        );
+
+        Ok(())
     }
 
     // assign = equality ("=" assign)?
     fn parse_assignment(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_equality()?;
 
-        if let Some(&Token {
+        if let Some(Token {
             kind: TokenKind::Punctuation("="),
             info,
-        }) = self.tokens.peek()
+        }) = self.tokens().peek()
         {
-            self.tokens.next();
+            self.tokens().next();
             node = Node::new(
                 NodeKind::binary(
                     BinaryKind::Assign,
                     Box::new(node),
                     Box::new(self.parse_assignment()?),
                 ),
-                info,
+                *info,
             )
             .map_err(|e| self.err_type_error(e, info.index))?
         }
@@ -419,21 +485,21 @@ impl<'a> Parser<'a> {
     fn parse_additive(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_multiplicative()?;
 
-        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+        while let Some(Token { kind, info }) = self.tokens().peek() {
             match kind {
                 TokenKind::Punctuation("+") => {
-                    self.tokens.next();
+                    self.tokens().next();
 
                     let lhs = Box::new(node);
                     let rhs = Box::new(self.parse_multiplicative()?);
-                    node = self.parse_addition(lhs, rhs, info)?
+                    node = self.parse_addition(lhs, rhs, *info)?
                 }
                 TokenKind::Punctuation("-") => {
-                    self.tokens.next();
+                    self.tokens().next();
 
                     let lhs = Box::new(node);
                     let rhs = Box::new(self.parse_multiplicative()?);
-                    node = self.parse_subtraction(lhs, rhs, info)?
+                    node = self.parse_subtraction(lhs, rhs, *info)?
                 }
                 _ => break,
             }
@@ -446,10 +512,11 @@ impl<'a> Parser<'a> {
     fn parse_relational(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_additive()?;
 
-        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+        while let Some(Token { kind, info }) = self.tokens().peek() {
+            let &info = info;
             match kind {
                 TokenKind::Punctuation("<") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::LessThan,
@@ -461,7 +528,7 @@ impl<'a> Parser<'a> {
                     .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 TokenKind::Punctuation("<=") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::LessThanEqual,
@@ -473,7 +540,7 @@ impl<'a> Parser<'a> {
                     .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 TokenKind::Punctuation(">") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::LessThan,
@@ -485,7 +552,7 @@ impl<'a> Parser<'a> {
                     .map_err(|e| self.err_type_error(e, info.index))?;
                 }
                 TokenKind::Punctuation(">=") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::LessThanEqual,
@@ -507,10 +574,11 @@ impl<'a> Parser<'a> {
     fn parse_equality(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_relational()?;
 
-        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+        while let Some(Token { kind, info }) = self.tokens().peek() {
+            let &info = info;
             match kind {
                 TokenKind::Punctuation("==") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::Equal,
@@ -522,7 +590,7 @@ impl<'a> Parser<'a> {
                     .map_err(|e| self.err_type_error(e, info.index))?
                 }
                 TokenKind::Punctuation("!=") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::NotEqual,
@@ -549,7 +617,7 @@ impl<'a> Parser<'a> {
     // func-params = (param ("," param)? ")"
     // param       = declspec declarator
     fn parse_function_params(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
-        while let Some(Token { kind, .. }) = self.tokens.peek() {
+        while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation(")") = kind {
                 break;
             }
@@ -574,16 +642,16 @@ impl<'a> Parser<'a> {
     //             | "[" num "]" type-suffix
     //             | epsilon
     fn parse_type_suffix(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
-        if let Some(Token { kind, .. }) = self.tokens.peek() {
+        if let Some(Token { kind, .. }) = self.tokens().peek() {
             match kind {
                 TokenKind::Punctuation("(") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     return self.parse_function_params(decl_type);
                 }
                 TokenKind::Punctuation("[") => {
-                    self.tokens.next();
+                    self.tokens().next();
 
-                    let Some(Token { kind, info }) = self.tokens.next() else {
+                    let Some(Token { kind, info }) = self.tokens().next() else {
                         return Err(self.err_unusual_end_of_tokens());
                     };
                     let TokenKind::Numeric(size) = kind else {
@@ -592,7 +660,7 @@ impl<'a> Parser<'a> {
                     self.expect_next(TokenKind::Punctuation("]"))?;
 
                     let array_type = self.parse_type_suffix(decl_type)?;
-                    return Ok(Type::array_of(&array_type, size));
+                    return Ok(Type::array_of(&array_type, *size));
                 }
                 _ => {}
             }
@@ -610,13 +678,13 @@ impl<'a> Parser<'a> {
         while let Some(Token {
             kind: TokenKind::Punctuation("*"),
             ..
-        }) = self.tokens.peek()
+        }) = self.tokens().peek()
         {
-            self.tokens.next();
+            self.tokens().next();
             decl_type = Type::pointer_to(&decl_type);
         }
 
-        let Some(Token { kind, info }) = self.tokens.next() else {
+        let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
         let TokenKind::Identifier(identifier) = kind else {
@@ -634,7 +702,8 @@ impl<'a> Parser<'a> {
         let mut statements = vec![];
         let mut decl_count = 0;
 
-        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+        while let Some(Token { kind, info }) = self.tokens().peek() {
+            let &info = info;
             if let TokenKind::Punctuation(";") = kind {
                 break;
             }
@@ -650,9 +719,9 @@ impl<'a> Parser<'a> {
             if let Some(Token {
                 kind: TokenKind::Punctuation("="),
                 ..
-            }) = self.tokens.peek()
+            }) = self.tokens().peek()
             {
-                self.tokens.next();
+                self.tokens().next();
 
                 let variable = Node::new(NodeKind::Variable(object), info)
                     .map_err(|e| self.err_type_error(e, info.index))?;
@@ -680,12 +749,13 @@ impl<'a> Parser<'a> {
     //      | "{" compound-stmt
     //      | expr-stmt
     fn parse_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        match self.tokens.peek() {
-            Some(&Token {
+        match self.tokens().peek() {
+            Some(Token {
                 kind: TokenKind::Keyword("return"),
                 info,
             }) => {
-                self.tokens.next();
+                let &info = info;
+                self.tokens().next();
 
                 let node = Node::new(
                     NodeKind::unary(UnaryKind::Return, Box::new(self.parse_expression()?)),
@@ -697,11 +767,13 @@ impl<'a> Parser<'a> {
 
                 Ok(node)
             }
-            Some(&Token {
+            Some(Token {
                 kind: TokenKind::Keyword("if"),
                 info,
             }) => {
-                self.tokens.next();
+                let &info = info;
+
+                self.tokens().next();
                 self.expect_next(TokenKind::Punctuation("("))?;
                 let condition = Box::new(self.parse_expression()?);
                 self.expect_next(TokenKind::Punctuation(")"))?;
@@ -710,9 +782,9 @@ impl<'a> Parser<'a> {
                 let else_block = if let Some(Token {
                     kind: TokenKind::Keyword("else"),
                     ..
-                }) = self.tokens.peek()
+                }) = self.tokens().peek()
                 {
-                    self.tokens.next();
+                    self.tokens().next();
                     Some(Box::new(self.parse_statement()?))
                 } else {
                     None
@@ -728,11 +800,13 @@ impl<'a> Parser<'a> {
                 )
                 .map_err(|e| self.err_type_error(e, info.index))
             }
-            Some(&Token {
+            Some(Token {
                 kind: TokenKind::Keyword("for"),
                 info,
             }) => {
-                self.tokens.next();
+                let &info = info;
+
+                self.tokens().next();
                 self.expect_next(TokenKind::Punctuation("("))?;
 
                 let init = Some(Box::new(self.parse_expr_statement()?));
@@ -740,7 +814,7 @@ impl<'a> Parser<'a> {
                 let condition = if let Some(Token {
                     kind: TokenKind::Punctuation(";"),
                     ..
-                }) = self.tokens.peek()
+                }) = self.tokens().peek()
                 {
                     None
                 } else {
@@ -751,7 +825,7 @@ impl<'a> Parser<'a> {
                 let increment = if let Some(Token {
                     kind: TokenKind::Punctuation(")"),
                     ..
-                }) = self.tokens.peek()
+                }) = self.tokens().peek()
                 {
                     None
                 } else {
@@ -772,11 +846,13 @@ impl<'a> Parser<'a> {
                 )
                 .map_err(|e| self.err_type_error(e, info.index))
             }
-            Some(&Token {
+            Some(Token {
                 kind: TokenKind::Keyword("while"),
                 info,
             }) => {
-                self.tokens.next();
+                let &info = info;
+
+                self.tokens().next();
                 self.expect_next(TokenKind::Punctuation("("))?;
                 let condition = Some(Box::new(self.parse_expression()?));
                 self.expect_next(TokenKind::Punctuation(")"))?;
@@ -793,11 +869,13 @@ impl<'a> Parser<'a> {
                 )
                 .map_err(|e| self.err_type_error(e, info.index))
             }
-            Some(&Token {
+            Some(Token {
                 kind: TokenKind::Punctuation("{"),
                 info,
             }) => {
-                self.tokens.next();
+                let &info = info;
+
+                self.tokens().next();
                 self.parse_compound_statement(info)
             }
             _ => self.parse_expr_statement(),
@@ -808,18 +886,18 @@ impl<'a> Parser<'a> {
     fn parse_compound_statement(&mut self, info: Info) -> Result<Node<'a>, ParseError<'a>> {
         let mut compound_statements = vec![];
 
-        while let Some(Token { kind, .. }) = self.tokens.peek() {
+        while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation("}") = kind {
-                self.tokens.next();
+                self.tokens().next();
                 break;
             }
 
-            let compound_statement = if let Some(&Token {
+            let compound_statement = if let Some(Token {
                 kind: TokenKind::Keyword("int"),
                 info,
-            }) = self.tokens.peek()
+            }) = self.tokens().peek()
             {
-                self.parse_declaration(info)
+                self.parse_declaration(*info)
             } else {
                 self.parse_statement()
             }?;
@@ -838,13 +916,13 @@ impl<'a> Parser<'a> {
 
     // expr-stmt = expr? ";"
     fn parse_expr_statement(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        if let Some(&Token {
+        if let Some(Token {
             kind: TokenKind::Punctuation(";"),
             info,
-        }) = self.tokens.peek()
+        }) = self.tokens().peek()
         {
-            self.tokens.next();
-            return Node::new(NodeKind::ExprStatement { statements: vec![] }, info)
+            self.tokens().next();
+            return Node::new(NodeKind::ExprStatement { statements: vec![] }, *info)
                 .map_err(|e| self.err_type_error(e, info.index));
         };
 
@@ -867,7 +945,7 @@ impl<'a> Parser<'a> {
     ) -> Result<Node<'a>, ParseError<'a>> {
         let mut args = vec![];
 
-        while let Some(Token { kind, .. }) = self.tokens.peek() {
+        while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation(")") = kind {
                 break;
             }
@@ -886,21 +964,21 @@ impl<'a> Parser<'a> {
     fn parse_postfix(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_primary()?;
 
-        while let Some(&Token {
+        while let Some(Token {
             kind: TokenKind::Punctuation("["),
             info,
-        }) = self.tokens.peek()
+        }) = self.tokens().peek()
         {
-            self.tokens.next();
+            self.tokens().next();
             let index = self.parse_expression()?;
             self.expect_next(TokenKind::Punctuation("]"))?;
 
             node = Node::new(
                 NodeKind::unary(
                     UnaryKind::Deref,
-                    Box::new(self.parse_addition(Box::new(node), Box::new(index), info)?),
+                    Box::new(self.parse_addition(Box::new(node), Box::new(index), *info)?),
                 ),
-                info,
+                *info,
             )
             .map_err(|e| self.err_type_error(e, info.index))?
         }
@@ -910,9 +988,10 @@ impl<'a> Parser<'a> {
 
     // primary = "(" expr ")" | "sizeof" unary | ident func-args? | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        let Some(Token { kind, info }) = self.tokens.next() else {
+        let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
+        let &info = info;
 
         match kind {
             TokenKind::Punctuation("(") => {
@@ -924,21 +1003,15 @@ impl<'a> Parser<'a> {
                 if let Some(Token {
                     kind: TokenKind::Punctuation("("),
                     ..
-                }) = self.tokens.peek()
+                }) = self.tokens().peek()
                 {
-                    self.tokens.next();
+                    self.tokens().next();
                     return self.parse_function_call(name, info);
                 }
 
-                Ok(Node::new(
-                    NodeKind::Variable(
-                        self.function()
-                            .get_local(name)
-                            .ok_or_else(|| self.err_undefined_variable(info.index))?,
-                    ),
-                    info,
-                )
-                .map_err(|e| self.err_type_error(e, info.index))?)
+                let object = self.get_variable(name, info)?;
+                Ok(Node::new(NodeKind::Variable(object), info)
+                    .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::Keyword("sizeof") => {
                 let size = self.parse_unary()?.node_type.size;
@@ -946,7 +1019,7 @@ impl<'a> Parser<'a> {
                 Ok(Node::new(NodeKind::Numeric(size), info)
                     .map_err(|e| self.err_type_error(e, info.index))?)
             }
-            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(num), info)
+            TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(*num), info)
                 .map_err(|e| self.err_type_error(e, info.index))?),
             _ => Err(self.err_expected_expression(info.index)),
         }
@@ -955,17 +1028,18 @@ impl<'a> Parser<'a> {
     // unary = ("*" | "-" | "*" | "&" ) unary
     //         | postfix
     fn parse_unary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        let Some(&Token { ref kind, info }) = self.tokens.peek() else {
+        let Some(Token { kind, info }) = self.tokens().peek() else {
             return Err(self.err_unusual_end_of_tokens());
         };
+        let &info = info;
 
         match kind {
             TokenKind::Punctuation("+") => {
-                self.tokens.next();
+                self.tokens().next();
                 self.parse_unary()
             }
             TokenKind::Punctuation("-") => {
-                self.tokens.next();
+                self.tokens().next();
                 Ok(Node::new(
                     NodeKind::unary(UnaryKind::Negate, Box::new(self.parse_unary()?)),
                     info,
@@ -973,7 +1047,7 @@ impl<'a> Parser<'a> {
                 .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::Punctuation("&") => {
-                self.tokens.next();
+                self.tokens().next();
                 Ok(Node::new(
                     NodeKind::unary(UnaryKind::Address, Box::new(self.parse_unary()?)),
                     info,
@@ -981,7 +1055,7 @@ impl<'a> Parser<'a> {
                 .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::Punctuation("*") => {
-                self.tokens.next();
+                self.tokens().next();
 
                 Ok(Node::new(
                     NodeKind::unary(UnaryKind::Deref, Box::new(self.parse_unary()?)),
@@ -997,10 +1071,11 @@ impl<'a> Parser<'a> {
     fn parse_multiplicative(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_unary()?;
 
-        while let Some(&Token { ref kind, info }) = self.tokens.peek() {
+        while let Some(Token { kind, info }) = self.tokens().peek() {
+            let &info = info;
             match kind {
                 TokenKind::Punctuation("*") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::Multiply,
@@ -1012,7 +1087,7 @@ impl<'a> Parser<'a> {
                     .map_err(|e| self.err_type_error(e, info.index))?
                 }
                 TokenKind::Punctuation("/") => {
-                    self.tokens.next();
+                    self.tokens().next();
                     node = Node::new(
                         NodeKind::binary(
                             BinaryKind::Divide,
@@ -1128,6 +1203,13 @@ impl<'a> Parser<'a> {
             }
             _ => Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info.index)),
         }
+    }
+
+    fn get_variable(&mut self, name: &str, info: Info) -> Result<Rc<Object<'a>>, ParseError<'a>> {
+        self.function()
+            .get_local(name)
+            .or_else(|| self.translation_unit.get_object(name))
+            .ok_or_else(|| self.err_undefined_variable(info.index))
     }
 
     fn err_type_error(&self, type_error: TypeError, index: usize) -> ParseError<'a> {
