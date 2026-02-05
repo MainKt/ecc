@@ -10,6 +10,25 @@ fn assembly_exit_status() {
 }
 
 #[test]
+fn escape_sequences() {
+    assert_exit_status(r#"int main() { return "\a"[0]; }"#, 7);
+    assert_exit_status(r#"int main() { return "\b"[0]; }"#, 8);
+    assert_exit_status(r#"int main() { return "\t"[0]; }"#, 9);
+    assert_exit_status(r#"int main() { return "\n"[0]; }"#, 10);
+    assert_exit_status(r#"int main() { return "\v"[0]; }"#, 11);
+    assert_exit_status(r#"int main() { return "\f"[0]; }"#, 12);
+    assert_exit_status(r#"int main() { return "\r"[0]; }"#, 13);
+    assert_exit_status(r#"int main() { return "\e"[0]; }"#, 27);
+    assert_exit_status(r#"int main() { return "\j"[0]; }"#, 106);
+    assert_exit_status(r#"int main() { return "\k"[0]; }"#, 107);
+    assert_exit_status(r#"int main() { return "\l"[0]; }"#, 108);
+    assert_exit_status(r#"int main() { return "\ax\ny"[0]; }"#, 7);
+    assert_exit_status(r#"int main() { return "\ax\ny"[1]; }"#, 120);
+    assert_exit_status(r#"int main() { return "\ax\ny"[2]; }"#, 10);
+    assert_exit_status(r#"int main() { return "\ax\ny"[3]; }"#, 121);
+}
+
+#[test]
 fn global_variables() {
     assert_exit_status("int x; int main() { return x; }", 0);
     assert_exit_status("int x; int main() { x=3; return x; }", 3);

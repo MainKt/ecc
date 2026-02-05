@@ -4,7 +4,7 @@ use crate::util::Info;
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
-    String(&'a str),
+    String(String),
     Identifier(&'a str),
     Keyword(&'a str),
     Punctuation(&'a str),
@@ -121,9 +121,10 @@ impl<'a> Lexer<'a> {
                         return Err(self.err_unclosed_string_literal(index));
                     };
 
-                    let string = &self.input[index + 1..index + 1 + length];
+                    let escaped =
+                        Lexer::to_escaped_string(&self.input[index + 1..index + 1 + length]);
                     tokens.push(Token {
-                        kind: TokenKind::String(string),
+                        kind: TokenKind::String(escaped),
                         info: Info { index },
                     });
                 }
@@ -177,6 +178,35 @@ impl<'a> Lexer<'a> {
 
     fn is_identifier_head(c: char) -> bool {
         matches!(c, 'a'..='z' | 'A'..='Z' | '_')
+    }
+
+    fn to_escaped_string(s: &str) -> String {
+        let mut escaped = String::with_capacity(s.len());
+        let mut chars = s.chars();
+
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => {
+                    if let Some(next_c) = chars.next() {
+                        escaped.push(match next_c {
+                            'a' => '\x07',
+                            'b' => '\x08',
+                            't' => '\t',
+                            'n' => '\n',
+                            'v' => '\x0b',
+                            'f' => '\x0c',
+                            'r' => '\r',
+                            'e' => '\x1b',
+                            other => other,
+                        });
+                    } else {
+                        escaped.push('\\');
+                    }
+                }
+                c => escaped.push(c),
+            }
+        }
+        escaped
     }
 
     fn is_valid_identifier_tail(c: char) -> bool {
