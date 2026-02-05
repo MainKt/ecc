@@ -10,6 +10,22 @@ fn assembly_exit_status() {
 }
 
 #[test]
+fn sizeof() {
+    assert_exit_status("int main() { int x; return sizeof(x); }", 8);
+    assert_exit_status("int main() { int x; return sizeof x; }", 8);
+    assert_exit_status("int main() { int *x; return sizeof(x); }", 8);
+    assert_exit_status("int main() { int x[4]; return sizeof(x); }", 32);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(x); }", 96);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(*x); }", 32);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(**x); }", 8);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(**x) + 1; }", 9);
+    assert_exit_status("int main() { int x[3][4]; return sizeof **x + 1; }", 9);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(**x + 1); }", 8);
+    assert_exit_status("int main() { int x=1; return sizeof(x=2); }", 8);
+    assert_exit_status("int main() { int x=1; sizeof(x=2); return x; }", 1);
+}
+
+#[test]
 fn array_indexing() {
     assert_exit_status(
         "int main() { int x[3]; *x=3; x[1]=4; x[2]=5; return *x; }",

@@ -840,7 +840,7 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // primary = "(" expr ")" | ident func-args? | num
+    // primary = "(" expr ")" | "sizeof" unary | ident func-args? | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens.next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -871,6 +871,12 @@ impl<'a> Parser<'a> {
                     info,
                 )
                 .map_err(|e| self.err_type_error(e, info.index))?)
+            }
+            TokenKind::Keyword("sizeof") => {
+                let size = self.parse_unary()?.node_type.size;
+
+                Ok(Node::new(NodeKind::Numeric(size), info)
+                    .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(num), info)
                 .map_err(|e| self.err_type_error(e, info.index))?),
