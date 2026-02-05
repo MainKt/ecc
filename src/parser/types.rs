@@ -15,9 +15,15 @@ pub enum DerivedKind {
 }
 
 #[derive(Debug)]
+pub enum Integer {
+    Char,
+    Int,
+}
+
+#[derive(Debug)]
 pub enum TypeKind {
     None,
-    Integer,
+    Integer(Integer),
     Derived {
         kind: DerivedKind,
         to: Rc<Type>,
@@ -33,9 +39,15 @@ thread_local! {
         kind: TypeKind::None,
         size: 0,
     });
+
     static INTEGER: Rc<Type> = Rc::new(Type {
-        kind: TypeKind::Integer,
+        kind: TypeKind::Integer(Integer::Int),
         size: 8
+    });
+
+    static CHAR: Rc<Type> = Rc::new(Type {
+        kind: TypeKind::Integer(Integer::Char),
+        size: 1
     });
 }
 
@@ -47,8 +59,16 @@ pub enum TypeError {
 }
 
 impl Type {
+    pub fn char() -> Rc<Self> {
+        CHAR.with(|t| t.clone())
+    }
+
     pub fn integer() -> Rc<Self> {
         INTEGER.with(|t| t.clone())
+    }
+
+    pub fn is_type_name(name: &str) -> bool {
+        ["int", "char"].iter().any(|&t| t == name)
     }
 
     pub fn pointer_to(to: &Rc<Self>) -> Rc<Self> {

@@ -152,7 +152,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn is_identifier_head(c: char) -> bool {
-        matches!(c, 'a'..='z' | 'A'..='Z')
+        matches!(c, 'a'..='z' | 'A'..='Z' | '_')
     }
 
     fn is_valid_identifier_tail(c: char) -> bool {
@@ -160,9 +160,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn is_keyword(s: &str) -> bool {
-        ["return", "if", "else", "for", "while", "int", "sizeof"]
-            .iter()
-            .any(|&keyword| s == keyword)
+        [
+            "return", "if", "else", "for", "while", "int", "sizeof", "char",
+        ]
+        .iter()
+        .any(|&keyword| s == keyword)
     }
 
     pub fn err_invalid_token(self, index: usize) -> LexError<'a> {

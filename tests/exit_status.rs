@@ -341,6 +341,19 @@ fn function_call() {
     );
 }
 
+#[test]
+fn char_type() {
+    assert_exit_status("int main() { char x=1; return x; }", 1);
+    assert_exit_status("int main() { char x=1; char y=2; return x; }", 1);
+    assert_exit_status("int main() { char x=1; char y=2; return y; }", 2);
+    assert_exit_status("int main() { char x; return sizeof(x); }", 1);
+    assert_exit_status("int main() { char x[10]; return sizeof(x); }", 10);
+    assert_exit_status(
+        "int sub_char(char a, char b, char c) { return a-b-c; } int main() { return sub_char(7, 3, 3); }",
+        1,
+    );
+}
+
 fn define_functions(cc: &str, dir: &TempDir) -> PathBuf {
     let fn_defs = dir.path().join("fn_defs.c");
     std::fs::write(

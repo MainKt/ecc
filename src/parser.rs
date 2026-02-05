@@ -650,12 +650,18 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // declspec = "int"
+    // declspec = "char" | "int"
     fn parse_declaration_spec(&mut self) -> Result<Rc<Type>, ParseError<'a>> {
-        self.expect_next(TokenKind::Keyword("int"))?;
-
-        Ok(Type::integer())
+        let Some(Token { kind, info }) = self.tokens().next() else {
+            return Err(self.err_unusual_end_of_tokens());
+        };
+        match kind {
+            TokenKind::Keyword("char") => Ok(Type::char()),
+            TokenKind::Keyword("int") => Ok(Type::integer()),
+            _ => Err(self.err_unexpected_token(TokenKind::Keyword("int|char"), info.index)),
+        }
     }
+
     // func-params = (param ("," param)? ")"
     // param       = declspec declarator
     fn parse_function_params(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
@@ -935,9 +941,10 @@ impl<'a> Parser<'a> {
             }
 
             let compound_statement = if let Some(Token {
-                kind: TokenKind::Keyword("int"),
+                kind: TokenKind::Keyword(keyword),
                 info,
             }) = self.tokens().peek()
+                && Type::is_type_name(keyword)
             {
                 self.parse_declaration(*info)
             } else {
@@ -1154,12 +1161,12 @@ impl<'a> Parser<'a> {
         info: Info,
     ) -> Result<Node<'a>, ParseError<'a>> {
         match (&&lhs.node_type.kind, &rhs.node_type.kind) {
-            (TypeKind::Integer, TypeKind::Integer) => {
+            (TypeKind::Integer(..), TypeKind::Integer(..)) => {
                 Ok(Node::new(NodeKind::binary(BinaryKind::Add, lhs, rhs), info)
                     .map_err(|e| self.err_type_error(e, info.index))?)
             }
-            (TypeKind::Integer, TypeKind::Derived { to, .. })
-            | (TypeKind::Derived { to, .. }, TypeKind::Integer) => {
+            (TypeKind::Integer(..), TypeKind::Derived { to, .. })
+            | (TypeKind::Derived { to, .. }, TypeKind::Integer(..)) => {
                 let derived_element_size = to.size;
                 let (lhs, rhs) = match rhs.node_type.kind {
                     TypeKind::Derived { .. } => (rhs, lhs),
@@ -1197,12 +1204,12 @@ impl<'a> Parser<'a> {
         info: Info,
     ) -> Result<Node<'a>, ParseError<'a>> {
         match (&lhs.node_type.kind, &rhs.node_type.kind) {
-            (TypeKind::Integer, TypeKind::Integer) => Ok(Node::new(
+            (TypeKind::Integer(..), TypeKind::Integer(..)) => Ok(Node::new(
                 NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                 info,
             )
             .map_err(|e| self.err_type_error(e, info.index))?),
-            (TypeKind::Derived { to, .. }, TypeKind::Integer) => {
+            (TypeKind::Derived { to, .. }, TypeKind::Integer(..)) => {
                 let rhs = Node::new(
                     NodeKind::binary(
                         BinaryKind::Multiply,

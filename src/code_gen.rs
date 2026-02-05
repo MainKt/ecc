@@ -35,7 +35,8 @@ pub struct CodeGen<'a> {
     current_function: &'a str,
 }
 
-static ARG_REGISTERS: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
+static ARG_REGISTERS_8: [&'static str; 6] = ["%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"];
+static ARG_REGISTERS_64: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
 
 impl<'a> CodeGen<'a> {
     pub fn new(input: &'a str) -> Self {
@@ -75,7 +76,16 @@ impl<'a> CodeGen<'a> {
         self.instructions
             .push(format!("  sub ${}, %rsp", function.stack_size()).into());
 
-        for (param, register) in function.params().iter().zip(ARG_REGISTERS) {
+        for (i, param) in function.params().iter().enumerate() {
+            if i > function.params().len() {
+                break;
+            }
+            let register = (if param.object_type.size == 1 {
+                ARG_REGISTERS_8
+            } else {
+                ARG_REGISTERS_64
+            })[i];
+
             self.instructions
                 .push(format!("  mov {register}, {}(%rbp)", param.local_offset()).into());
         }
@@ -160,12 +170,24 @@ impl<'a> CodeGen<'a> {
             return;
         }
 
-        self.instructions.push("  mov (%rax), %rax".into())
+        self.instructions.push(
+            format!(
+                "  {} (%rax), %rax",
+                if load_type.size == 1 { "movsbq" } else { "mov" }
+            )
+            .into(),
+        )
     }
 
-    fn store(&mut self) {
+    fn store(&mut self, store_type: &Rc<Type>) {
         self.pop("%rdi");
-        self.instructions.push("  mov %rax, (%rdi)".into())
+        self.instructions.push(
+            format!(
+                "  mov %{}, (%rdi)",
+                if store_type.size == 1 { "al" } else { "rax" }
+            )
+            .into(),
+        )
     }
 
     fn traverse(&mut self, node: &Node) -> Result<(), CodeGenError<'a>> {
@@ -216,7 +238,7 @@ impl<'a> CodeGen<'a> {
                     self.generate_address(lhs)?;
                     self.push();
                     self.traverse(rhs)?;
-                    self.store()
+                    self.store(&node.node_type)
                 }
             },
             NodeKind::Unary { kind, lhs, .. } => match kind {
@@ -302,7 +324,7 @@ impl<'a> CodeGen<'a> {
                     self.traverse(arg)?;
                     self.push();
                 }
-                for register in ARG_REGISTERS.iter().take(args.len()).rev() {
+                for register in ARG_REGISTERS_64.iter().take(args.len()).rev() {
                     self.pop(register);
                 }
                 self.instructions.push("  mov $0, %rax".into());
