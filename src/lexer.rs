@@ -1,4 +1,7 @@
-use std::{iter::Peekable, str::CharIndices};
+use std::{
+    iter::Peekable,
+    str::{CharIndices, Chars},
+};
 
 use crate::util::Info;
 
@@ -180,24 +183,44 @@ impl<'a> Lexer<'a> {
         matches!(c, 'a'..='z' | 'A'..='Z' | '_')
     }
 
+    fn get_escaped_char(c: char) -> char {
+        match c {
+            'a' => '\x07',
+            'b' => '\x08',
+            't' => '\t',
+            'n' => '\n',
+            'v' => '\x0b',
+            'f' => '\x0c',
+            'r' => '\r',
+            'e' => '\x1b',
+            c => c,
+        }
+    }
+
+    fn read_octal(o1: char, chars: &mut Peekable<Chars>) -> char {
+        let mut octal = o1.to_digit(8).unwrap() as u8;
+        for _ in 0..2 {
+            if let Some(&o) = chars.peek()
+                && matches!(o, '0'..='7')
+            {
+                octal = (octal << 3) + o.to_digit(8).unwrap() as u8;
+                chars.next();
+            }
+        }
+        octal as char
+    }
+
     fn to_escaped_string(s: &str) -> String {
         let mut escaped = String::with_capacity(s.len());
-        let mut chars = s.chars();
+        let mut chars = s.chars().peekable();
 
         while let Some(c) = chars.next() {
             match c {
                 '\\' => {
-                    if let Some(next_c) = chars.next() {
-                        escaped.push(match next_c {
-                            'a' => '\x07',
-                            'b' => '\x08',
-                            't' => '\t',
-                            'n' => '\n',
-                            'v' => '\x0b',
-                            'f' => '\x0c',
-                            'r' => '\r',
-                            'e' => '\x1b',
-                            other => other,
+                    if let Some(c) = chars.next() {
+                        escaped.push(match c {
+                            o1 @ '0'..='7' => Lexer::read_octal(o1, &mut chars),
+                            c => Lexer::get_escaped_char(c),
                         });
                     } else {
                         escaped.push('\\');

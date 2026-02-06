@@ -10,6 +10,14 @@ fn assembly_exit_status() {
 }
 
 #[test]
+fn octal_sequences() {
+    assert_exit_status(r#"int main() { return "\0"[0]; }"#, 0);
+    assert_exit_status(r#"int main() { return "\20"[0]; }"#, 16);
+    assert_exit_status(r#"int main() { return "\101"[0]; }"#, 65);
+    assert_exit_status(r#"int main() { return "\1500"[0]; }"#, 104);
+}
+
+#[test]
 fn escape_sequences() {
     assert_exit_status(r#"int main() { return "\a"[0]; }"#, 7);
     assert_exit_status(r#"int main() { return "\b"[0]; }"#, 8);
