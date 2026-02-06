@@ -18,6 +18,14 @@ fn octal_sequences() {
 }
 
 #[test]
+fn hex_sequence() {
+    assert_exit_status(r#"int main() { return "\x00"[0]; }"#, 0);
+    assert_exit_status(r#"int main() { return "\x77"[0]; }"#, 119);
+    assert_exit_status(r#"int main() { return "\xA5"[0]; }"#, 165);
+    assert_exit_status(r#"int main() { return "\x00ff"[0]; }"#, 255);
+}
+
+#[test]
 fn escape_sequences() {
     assert_exit_status(r#"int main() { return "\a"[0]; }"#, 7);
     assert_exit_status(r#"int main() { return "\b"[0]; }"#, 8);

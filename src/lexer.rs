@@ -1,7 +1,4 @@
-use std::{
-    iter::Peekable,
-    str::{CharIndices, Chars},
-};
+use std::{iter::Peekable, str::CharIndices};
 
 use crate::util::Info;
 
@@ -42,6 +39,7 @@ pub struct Lexer<'a> {
 pub enum LexErrorKind {
     InvalidToken,
     UnclosedStringLiteral,
+    InvalidHexEscapeSequence,
 }
 
 pub struct LexError<'a> {
@@ -62,6 +60,11 @@ impl<'a> std::fmt::Display for LexError<'a> {
                 writeln!(f, "{}", self.input)?;
                 write!(f, "{:>width$}^ ", "", width = self.index)?;
                 write!(f, "unclosed string literal")
+            }
+            LexErrorKind::InvalidHexEscapeSequence => {
+                writeln!(f, "{}", self.input)?;
+                write!(f, "{:>width$}^ ", "", width = self.index)?;
+                write!(f, "invalid hex escape sequence")
             }
         }
     }
@@ -124,8 +127,8 @@ impl<'a> Lexer<'a> {
                         return Err(self.err_unclosed_string_literal(index));
                     };
 
-                    let escaped =
-                        Lexer::to_escaped_string(&self.input[index + 1..index + 1 + length]);
+                    let escaped = self
+                        .to_escaped_string(&self.input[index + 1..index + 1 + length], index + 1)?;
                     tokens.push(Token {
                         kind: TokenKind::String(escaped),
                         info: Info { index },
@@ -197,29 +200,56 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_octal(o1: char, chars: &mut Peekable<Chars>) -> char {
-        let mut octal = o1.to_digit(8).unwrap() as u8;
-        for _ in 0..2 {
-            if let Some(&o) = chars.peek()
-                && matches!(o, '0'..='7')
-            {
-                octal = (octal << 3) + o.to_digit(8).unwrap() as u8;
-                chars.next();
+    fn read_hex_seq(mut hex: u32, chars: &mut Peekable<CharIndices>) -> u32 {
+        while let Some(&(_, h)) = chars.peek() {
+            match h.to_digit(16) {
+                Some(h) => {
+                    hex = (hex << 4) + h;
+                    chars.next();
+                }
+                None => break,
             }
         }
-        octal as char
+        hex
     }
 
-    fn to_escaped_string(s: &str) -> String {
-        let mut escaped = String::with_capacity(s.len());
-        let mut chars = s.chars().peekable();
+    fn read_octal_seq(mut octal: u32, chars: &mut Peekable<CharIndices>) -> u32 {
+        for _ in 0..2 {
+            if let Some(&(_, o)) = chars.peek()
+                && matches!(o, '0'..='7')
+            {
+                match o.to_digit(8) {
+                    Some(o) => {
+                        octal = (octal << 3) + o;
+                        chars.next();
+                    }
+                    None => break,
+                }
+            }
+        }
+        octal
+    }
 
-        while let Some(c) = chars.next() {
+    fn to_escaped_string(&self, s: &str, index: usize) -> Result<String, LexError<'a>> {
+        let mut escaped = String::with_capacity(s.len());
+        let mut chars = s.char_indices().peekable();
+
+        while let Some((_, c)) = chars.next() {
             match c {
                 '\\' => {
-                    if let Some(c) = chars.next() {
+                    if let Some((i, c)) = chars.next() {
                         escaped.push(match c {
-                            o1 @ '0'..='7' => Lexer::read_octal(o1, &mut chars),
+                            o @ '0'..='7' => {
+                                Lexer::read_octal_seq(o as u32 - '0' as u32, &mut chars) as u8
+                                    as char
+                            }
+                            'x' => {
+                                let Some(hex) = chars.next().and_then(|(_, c)| c.to_digit(16))
+                                else {
+                                    return Err(self.err_invalid_hex_escape_seq(index + i));
+                                };
+                                Lexer::read_hex_seq(hex, &mut chars) as u8 as char
+                            }
                             c => Lexer::get_escaped_char(c),
                         });
                     } else {
@@ -229,7 +259,7 @@ impl<'a> Lexer<'a> {
                 c => escaped.push(c),
             }
         }
-        escaped
+        Ok(escaped)
     }
 
     fn is_valid_identifier_tail(c: char) -> bool {
@@ -244,7 +274,7 @@ impl<'a> Lexer<'a> {
         .any(|&keyword| s == keyword)
     }
 
-    fn err_unclosed_string_literal(self, index: usize) -> LexError<'a> {
+    fn err_unclosed_string_literal(&self, index: usize) -> LexError<'a> {
         LexError {
             input: self.input,
             kind: LexErrorKind::UnclosedStringLiteral,
@@ -252,7 +282,15 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn err_invalid_token(self, index: usize) -> LexError<'a> {
+    fn err_invalid_hex_escape_seq(&self, index: usize) -> LexError<'a> {
+        LexError {
+            input: self.input,
+            kind: LexErrorKind::InvalidHexEscapeSequence,
+            index,
+        }
+    }
+
+    fn err_invalid_token(&self, index: usize) -> LexError<'a> {
         LexError {
             input: self.input,
             kind: LexErrorKind::InvalidToken,

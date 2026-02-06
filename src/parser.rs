@@ -1076,12 +1076,12 @@ impl<'a> Parser<'a> {
                     .map_err(|e| self.err_type_error(e, info.index))?)
             }
             TokenKind::String(string) => {
-                let mut string = string.as_bytes().to_vec();
-                string.push(0); // null terminate
+                let mut bytes: Vec<_> = string.chars().map(|c| c as u8).collect();
+                bytes.push(0); // null terminate
                 let object = Object::global_variable_with_data(
                     util::unique_name().into(),
-                    Type::array_of(&Type::char(), string.len()),
-                    string,
+                    Type::array_of(&Type::char(), bytes.len()),
+                    bytes,
                 );
                 let object = self
                     .translation_unit
