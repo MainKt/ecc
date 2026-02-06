@@ -3,6 +3,13 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn comma_operator() {
+    assert_exit_status("int main() { return (1,2,3); }", 3);
+    assert_exit_status("int main() { int i=2, j=3; (i=5,j)=6; return i; }", 5);
+    assert_exit_status("int main() { int i=2, j=3; (i=5,j)=6; return j; }", 6);
+}
+
+#[test]
 fn assembly_exit_status() {
     assert_exit_status("int main() {return 0;}", 0);
     assert_exit_status("int main() {return 1;}", 1);

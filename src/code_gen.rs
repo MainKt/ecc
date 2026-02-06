@@ -153,6 +153,15 @@ impl<'a> CodeGen<'a> {
                 lhs,
                 ..
             } => self.traverse(lhs),
+            NodeKind::Binary {
+                kind: BinaryKind::Comma,
+                rhs,
+                lhs,
+                ..
+            } => {
+                self.traverse(lhs)?;
+                self.generate_address(rhs)
+            }
             _ => Err(self.err_non_lvalue_assigment(info.index)),
         }
     }
@@ -244,6 +253,10 @@ impl<'a> CodeGen<'a> {
                     self.push();
                     self.traverse(rhs)?;
                     self.store(&node.node_type)
+                }
+                BinaryKind::Comma => {
+                    self.traverse(lhs)?;
+                    self.traverse(rhs)?;
                 }
             },
             NodeKind::Unary { kind, lhs, .. } => match kind {

@@ -112,7 +112,7 @@ impl Type {
         match kind {
             NodeKind::Numeric { .. } => Ok(Self::integer()),
             NodeKind::Variable(object) => Ok(object.object_type.clone()),
-            NodeKind::Binary { kind, lhs, .. } => match kind {
+            NodeKind::Binary { kind, rhs, lhs, .. } => match kind {
                 BinaryKind::Add
                 | BinaryKind::Subtract
                 | BinaryKind::Multiply
@@ -132,6 +132,7 @@ impl Type {
                 BinaryKind::NotEqual => Ok(Self::integer()),
                 BinaryKind::LessThan => Ok(Self::integer()),
                 BinaryKind::LessThanEqual => Ok(Self::integer()),
+                BinaryKind::Comma => Ok(rhs.node_type.clone()),
             },
             NodeKind::Unary { kind, lhs, .. } => match kind {
                 UnaryKind::Negate => Ok(lhs.node_type.clone()),

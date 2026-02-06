@@ -45,6 +45,7 @@ pub enum BinaryKind {
     LessThan,
     LessThanEqual,
     Assign,
+    Comma,
 }
 
 #[derive(Debug)]
@@ -1029,7 +1030,27 @@ impl<'a> Parser<'a> {
 
     // expr = assign
     fn parse_expression(&mut self) -> Result<Node<'a>, ParseError<'a>> {
-        self.parse_assignment()
+        let assignment = self.parse_assignment()?;
+
+        if let Some(Token {
+            kind: TokenKind::Punctuation(","),
+            info,
+            ..
+        }) = self.tokens.peek()
+        {
+            self.tokens.next();
+            return Ok(Node::new(
+                NodeKind::binary(
+                    BinaryKind::Comma,
+                    Box::new(assignment),
+                    Box::new(self.parse_expression()?),
+                ),
+                *info,
+            )
+            .map_err(|e| self.err_type_error(e, info.index))?);
+        }
+
+        Ok(assignment)
     }
 
     // funcall = ident "(" (assign ("," assign)*)? ")"
