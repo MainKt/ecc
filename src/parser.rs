@@ -277,6 +277,7 @@ impl<'a> Function<'a> {
 
 #[derive(Debug)]
 pub struct Parser<'a> {
+    file: &'a str,
     input: &'a str,
     tokens: Peekable<Iter<'a, Token<'a>>>,
     lookahead_tokens: Option<Peekable<Iter<'a, Token<'a>>>>,
@@ -327,6 +328,7 @@ pub enum ParseErrorKind<'a> {
 }
 
 pub struct ParseError<'a> {
+    file: &'a str,
     input: &'a str,
     index: usize,
     kind: ParseErrorKind<'a>,
@@ -334,59 +336,21 @@ pub struct ParseError<'a> {
 
 impl<'a> std::fmt::Display for ParseError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { input, index, kind } = self;
-        match kind {
-            ParseErrorKind::ExtraToken => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "extra token")
-            }
-            ParseErrorKind::UnexpectedToken { expected } => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "expected `{expected}'")
-            }
-            ParseErrorKind::ExpectedExpression => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "expected an expression")
-            }
-            ParseErrorKind::InvalidOperands => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "invalid operands")
-            }
-            ParseErrorKind::InvalidPointerDeref => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "invalid pointer dereference")
-            }
-            ParseErrorKind::ExpectedNumber => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "expected a number")
-            }
-            ParseErrorKind::ExpectedVariableName => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "expected a variable name")
-            }
-            ParseErrorKind::UndefinedVariable => {
-                writeln!(f, "{input}")?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "undefined variable")
-            }
+        util::info_msg(f, self.file, self.input, self.index)?;
+        match &self.kind {
+            ParseErrorKind::ExtraToken => write!(f, "extra token"),
+            ParseErrorKind::UnexpectedToken { expected } => write!(f, "expected `{expected}'"),
+            ParseErrorKind::ExpectedExpression => write!(f, "expected an expression"),
+            ParseErrorKind::InvalidOperands => write!(f, "invalid operands"),
+            ParseErrorKind::InvalidPointerDeref => write!(f, "invalid pointer dereference"),
+            ParseErrorKind::ExpectedNumber => write!(f, "expected a number"),
+            ParseErrorKind::ExpectedVariableName => write!(f, "expected a variable name"),
+            ParseErrorKind::UndefinedVariable => write!(f, "undefined variable"),
+            ParseErrorKind::NonLValueAssignment => write!(f, "not an lvalue"),
             ParseErrorKind::UnusualEndOfTokens => {
                 write!(f, "fatal error: Unusual end of tokens during parsing")
             }
-            ParseErrorKind::NonLValueAssignment => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
-                write!(f, "not an lvalue")
-            }
             ParseErrorKind::StatementExprReturnsVoid => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "statement expression returning void is not supported")
             }
         }
@@ -394,8 +358,9 @@ impl<'a> std::fmt::Display for ParseError<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, tokens: &'a [Token<'a>]) -> Self {
+    pub fn new(file: &'a str, input: &'a str, tokens: &'a [Token<'a>]) -> Self {
         Self {
+            file,
             input,
             tokens: tokens.iter().peekable(),
             lookahead_tokens: None,
@@ -726,7 +691,7 @@ impl<'a> Parser<'a> {
                         return Err(self.err_unusual_end_of_tokens());
                     };
                     let TokenKind::Numeric(size) = kind else {
-                        return Err(self.err_expected_number(info.index));
+                        return Err(self.emit_error(ParseErrorKind::ExpectedNumber, info.index));
                     };
                     self.expect_next(TokenKind::Punctuation("]"))?;
 
@@ -759,7 +724,7 @@ impl<'a> Parser<'a> {
             return Err(self.err_unusual_end_of_tokens());
         };
         let TokenKind::Identifier(identifier) = kind else {
-            return Err(self.err_expected_variable_name(info.index));
+            return Err(self.emit_error(ParseErrorKind::ExpectedVariableName, info.index));
         };
 
         let decl_type = self.parse_type_suffix(decl_type)?;
@@ -1174,7 +1139,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(*num), info)
                 .map_err(|e| self.err_type_error(e, info.index))?),
-            _ => Err(self.err_expected_expression(info.index)),
+            _ => Err(self.emit_error(ParseErrorKind::ExpectedExpression, info.index)),
         }
     }
 
@@ -1362,7 +1327,7 @@ impl<'a> Parser<'a> {
         self.function()
             .get_local(name)
             .or_else(|| self.translation_unit.get_object(name))
-            .ok_or_else(|| self.err_undefined_variable(info.index))
+            .ok_or_else(|| self.emit_error(ParseErrorKind::UndefinedVariable, info.index))
     }
 
     fn err_type_error(&self, type_error: TypeError, index: usize) -> ParseError<'a> {
@@ -1373,68 +1338,28 @@ impl<'a> Parser<'a> {
             TypeError::StatementExprReturnsVoid => ParseErrorKind::StatementExprReturnsVoid,
         };
 
+        self.emit_error(kind, index)
+    }
+
+    fn emit_error(&self, kind: ParseErrorKind<'a>, index: usize) -> ParseError<'a> {
         ParseError {
+            file: self.file,
             input: self.input,
             kind,
             index,
         }
     }
 
-    fn err_expected_number(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::ExpectedNumber,
-            index,
-        }
-    }
-
-    fn err_expected_variable_name(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::ExpectedVariableName,
-            index,
-        }
-    }
-
     fn err_unusual_end_of_tokens(&self) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::UnusualEndOfTokens,
-            index: 0,
-        }
-    }
-
-    fn err_undefined_variable(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::UndefinedVariable,
-            index,
-        }
-    }
-
-    fn err_expected_expression(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::ExpectedExpression,
-            index,
-        }
+        self.emit_error(ParseErrorKind::UnusualEndOfTokens, self.input.len())
     }
 
     fn err_unexpected_token(&self, expected_kind: TokenKind<'a>, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::UnexpectedToken {
+        self.emit_error(
+            ParseErrorKind::UnexpectedToken {
                 expected: expected_kind,
             },
             index,
-        }
-    }
-
-    fn _err_extra_token(&self, index: usize) -> ParseError<'a> {
-        ParseError {
-            input: self.input,
-            kind: ParseErrorKind::ExtraToken,
-            index,
-        }
+        )
     }
 }

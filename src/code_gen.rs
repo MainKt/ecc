@@ -1,6 +1,9 @@
-use crate::parser::{
-    BinaryKind, Function, Lifetime, Node, NodeKind, Object, ObjectKind, UnaryKind,
-    types::{DerivedKind, Type, TypeKind},
+use crate::{
+    parser::{
+        BinaryKind, Function, Lifetime, Node, NodeKind, Object, ObjectKind, UnaryKind,
+        types::{DerivedKind, Type, TypeKind},
+    },
+    util,
 };
 use std::{borrow::Cow, rc::Rc};
 
@@ -11,6 +14,7 @@ pub enum CodeGenErrorKind {
 
 #[derive(Debug)]
 pub struct CodeGenError<'a> {
+    file: &'a str,
     input: &'a str,
     kind: CodeGenErrorKind,
 }
@@ -19,8 +23,7 @@ impl<'a> std::fmt::Display for CodeGenError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.kind {
             CodeGenErrorKind::NonLValueAssignment { index } => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = index)?;
+                util::info_msg(f, self.file, self.input, index)?;
                 write!(f, "not an lvalue")
             }
         }
@@ -28,6 +31,7 @@ impl<'a> std::fmt::Display for CodeGenError<'a> {
 }
 
 pub struct CodeGen<'a> {
+    file: &'a str,
     input: &'a str,
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
@@ -39,8 +43,9 @@ static ARG_REGISTERS_8: [&'static str; 6] = ["%dil", "%sil", "%dl", "%cl", "%r8b
 static ARG_REGISTERS_64: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
 
 impl<'a> CodeGen<'a> {
-    pub fn new(input: &'a str) -> Self {
+    pub fn new(file: &'a str, input: &'a str) -> Self {
         Self {
+            file,
             input,
             depth: 0,
             instructions: vec![],
@@ -348,6 +353,7 @@ impl<'a> CodeGen<'a> {
 
     fn err_non_lvalue_assigment(&self, index: usize) -> CodeGenError<'a> {
         CodeGenError {
+            file: self.file,
             kind: CodeGenErrorKind::NonLValueAssignment { index },
             input: self.input,
         }

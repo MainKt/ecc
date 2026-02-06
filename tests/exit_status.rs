@@ -460,8 +460,11 @@ fn define_functions(cc: &str, dir: &TempDir) -> PathBuf {
 
 fn assert_exit_status(program: &str, expected_status: i32) {
     let compiler = env!("CARGO_BIN_EXE_ecc");
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let program_path = dir.path().join("program.c");
+    std::fs::write(&program_path, program).unwrap();
     let asm_out = Command::new(compiler)
-        .arg(program)
+        .arg(&program_path)
         .output()
         .expect("failed to run the compiler");
     assert!(
@@ -471,7 +474,6 @@ fn assert_exit_status(program: &str, expected_status: i32) {
         String::from_utf8(asm_out.stderr).unwrap()
     );
 
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
     let asm_path = dir.path().join("asm.S");
     std::fs::write(&asm_path, &asm_out.stdout).unwrap();
     let exe_path = dir.path().join("exe");

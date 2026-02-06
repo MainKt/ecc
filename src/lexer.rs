@@ -1,6 +1,6 @@
 use std::{iter::Peekable, str::CharIndices};
 
-use crate::util::Info;
+use crate::util::{self, Info};
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
@@ -32,6 +32,7 @@ pub struct Token<'a> {
 }
 
 pub struct Lexer<'a> {
+    file: &'a str,
     input: &'a str,
     chars: Peekable<CharIndices<'a>>,
 }
@@ -44,6 +45,7 @@ pub enum LexErrorKind {
 }
 
 pub struct LexError<'a> {
+    file: &'a str,
     input: &'a str,
     kind: LexErrorKind,
     index: usize,
@@ -51,34 +53,20 @@ pub struct LexError<'a> {
 
 impl<'a> std::fmt::Display for LexError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        util::info_msg(f, self.file, self.input, self.index)?;
         match self.kind {
-            LexErrorKind::InvalidToken => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = self.index)?;
-                write!(f, "invalid token")
-            }
-            LexErrorKind::UnclosedBlockComment => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = self.index)?;
-                write!(f, "unclosed block comment")
-            }
-            LexErrorKind::UnclosedStringLiteral => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = self.index)?;
-                write!(f, "unclosed string literal")
-            }
-            LexErrorKind::InvalidHexEscapeSequence => {
-                writeln!(f, "{}", self.input)?;
-                write!(f, "{:>width$}^ ", "", width = self.index)?;
-                write!(f, "invalid hex escape sequence")
-            }
+            LexErrorKind::InvalidToken => write!(f, "invalid token"),
+            LexErrorKind::UnclosedBlockComment => write!(f, "unclosed block comment"),
+            LexErrorKind::UnclosedStringLiteral => write!(f, "unclosed string literal"),
+            LexErrorKind::InvalidHexEscapeSequence => write!(f, "invalid hex escape sequence"),
         }
     }
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Self {
+    pub fn new(file: &'a str, input: &'a str) -> Self {
         Self {
+            file,
             input,
             chars: input.char_indices().peekable(),
         }
@@ -136,7 +124,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     if !is_closed {
-                        return Err(self.err_unclosed_block_comment(index));
+                        return Err(self.emit_error(LexErrorKind::UnclosedBlockComment, index));
                     }
                 }
                 '"' => {
@@ -145,13 +133,13 @@ impl<'a> Lexer<'a> {
                         && *c != '"'
                     {
                         if matches!(c, '\n' | '\0') {
-                            return Err(self.err_unclosed_string_literal(index));
+                            return Err(self.emit_error(LexErrorKind::UnclosedStringLiteral, index));
                         }
                         self.chars.next();
                         length += 1;
                     }
                     let Some((_, '"')) = self.chars.next() else {
-                        return Err(self.err_unclosed_string_literal(index));
+                        return Err(self.emit_error(LexErrorKind::UnclosedStringLiteral, index));
                     };
 
                     let escaped = self
@@ -193,7 +181,7 @@ impl<'a> Lexer<'a> {
                             info: Info { index },
                         });
                     } else {
-                        return Err(self.err_invalid_token(index));
+                        return Err(self.emit_error(LexErrorKind::InvalidToken, index));
                     }
                 }
             }
@@ -273,7 +261,10 @@ impl<'a> Lexer<'a> {
                             'x' => {
                                 let Some(hex) = chars.next().and_then(|(_, c)| c.to_digit(16))
                                 else {
-                                    return Err(self.err_invalid_hex_escape_seq(index + i));
+                                    return Err(self.emit_error(
+                                        LexErrorKind::InvalidHexEscapeSequence,
+                                        index + i,
+                                    ));
                                 };
                                 Lexer::read_hex_seq(hex, &mut chars) as u8 as char
                             }
@@ -301,34 +292,11 @@ impl<'a> Lexer<'a> {
         .any(|&keyword| s == keyword)
     }
 
-    fn err_unclosed_block_comment(&self, index: usize) -> LexError<'a> {
+    fn emit_error(&self, kind: LexErrorKind, index: usize) -> LexError<'a> {
         LexError {
+            file: self.file,
             input: self.input,
-            kind: LexErrorKind::UnclosedBlockComment,
-            index,
-        }
-    }
-
-    fn err_unclosed_string_literal(&self, index: usize) -> LexError<'a> {
-        LexError {
-            input: self.input,
-            kind: LexErrorKind::UnclosedStringLiteral,
-            index,
-        }
-    }
-
-    fn err_invalid_hex_escape_seq(&self, index: usize) -> LexError<'a> {
-        LexError {
-            input: self.input,
-            kind: LexErrorKind::InvalidHexEscapeSequence,
-            index,
-        }
-    }
-
-    fn err_invalid_token(&self, index: usize) -> LexError<'a> {
-        LexError {
-            input: self.input,
-            kind: LexErrorKind::InvalidToken,
+            kind,
             index,
         }
     }
