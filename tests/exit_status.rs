@@ -26,6 +26,18 @@ fn hex_sequence() {
 }
 
 #[test]
+fn comments() {
+    assert_exit_status(
+        r"
+        int main() { // return 1;
+            return 2;
+        }",
+        2,
+    );
+    assert_exit_status("int main() { /* return 1; */ return 2; }", 2);
+}
+
+#[test]
 fn statement_expression() {
     assert_exit_status("int main() { return ({ 0; }); }", 0);
     assert_exit_status("int main() { return ({ 0; 1; 2; }); }", 2);

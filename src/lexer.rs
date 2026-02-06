@@ -39,6 +39,7 @@ pub struct Lexer<'a> {
 pub enum LexErrorKind {
     InvalidToken,
     UnclosedStringLiteral,
+    UnclosedBlockComment,
     InvalidHexEscapeSequence,
 }
 
@@ -55,6 +56,11 @@ impl<'a> std::fmt::Display for LexError<'a> {
                 writeln!(f, "{}", self.input)?;
                 write!(f, "{:>width$}^ ", "", width = self.index)?;
                 write!(f, "invalid token")
+            }
+            LexErrorKind::UnclosedBlockComment => {
+                writeln!(f, "{}", self.input)?;
+                write!(f, "{:>width$}^ ", "", width = self.index)?;
+                write!(f, "unclosed block comment")
             }
             LexErrorKind::UnclosedStringLiteral => {
                 writeln!(f, "{}", self.input)?;
@@ -111,6 +117,27 @@ impl<'a> Lexer<'a> {
                         kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
                         info: Info { index },
                     });
+                }
+                '/' if matches!(self.chars.peek(), Some((_, '/'))) => {
+                    self.chars.next();
+                    while let Some((_, c)) = self.chars.next() {
+                        if c == '\n' {
+                            break;
+                        }
+                    }
+                }
+                '/' if matches!(self.chars.peek(), Some((_, '*'))) => {
+                    let mut is_closed = false;
+                    while let Some((_, c)) = self.chars.next() {
+                        if c == '*' && matches!(self.chars.peek(), Some((_, '/'))) {
+                            self.chars.next();
+                            is_closed = true;
+                            break;
+                        }
+                    }
+                    if !is_closed {
+                        return Err(self.err_unclosed_block_comment(index));
+                    }
                 }
                 '"' => {
                     let mut length = 0;
@@ -272,6 +299,14 @@ impl<'a> Lexer<'a> {
         ]
         .iter()
         .any(|&keyword| s == keyword)
+    }
+
+    fn err_unclosed_block_comment(&self, index: usize) -> LexError<'a> {
+        LexError {
+            input: self.input,
+            kind: LexErrorKind::UnclosedBlockComment,
+            index,
+        }
     }
 
     fn err_unclosed_string_literal(&self, index: usize) -> LexError<'a> {
