@@ -53,6 +53,13 @@ pub enum UnaryKind {
     Address,
     Deref,
     Return,
+    ExprStatement,
+}
+
+#[derive(Debug)]
+pub enum CompoundStatementKind {
+    Block,
+    StatementExpr,
 }
 
 #[derive(Debug)]
@@ -72,11 +79,9 @@ pub enum NodeKind<'a> {
         kind: UnaryKind,
         lhs: Box<Node<'a>>,
     },
-    ExprStatement {
-        statements: Vec<Node<'a>>,
-    },
-    Block {
-        compound_statements: Vec<Node<'a>>,
+    CompoundStatement {
+        kind: CompoundStatementKind,
+        nodes: Vec<Node<'a>>,
     },
     If {
         condition: Box<Node<'a>>,
@@ -319,6 +324,7 @@ pub enum ParseErrorKind<'a> {
     ExpectedNumber,
     ExpectedVariableName,
     NonLValueAssignment,
+    StatementExprReturnsVoid,
 }
 
 pub struct ParseError<'a> {
@@ -378,6 +384,11 @@ impl<'a> std::fmt::Display for ParseError<'a> {
                 writeln!(f, "{}", self.input)?;
                 write!(f, "{:>width$}^ ", "", width = index)?;
                 write!(f, "not an lvalue")
+            }
+            ParseErrorKind::StatementExprReturnsVoid => {
+                writeln!(f, "{}", self.input)?;
+                write!(f, "{:>width$}^ ", "", width = index)?;
+                write!(f, "statement expression returning void is not supported")
             }
         }
     }
@@ -500,7 +511,14 @@ impl<'a> Parser<'a> {
         self.function().set_name(identifier);
 
         self.expect_next(TokenKind::Punctuation("{"))?;
-        let function_body = self.parse_compound_statement(info)?;
+        let function_body = Node::new(
+            NodeKind::CompoundStatement {
+                kind: CompoundStatementKind::Block,
+                nodes: self.parse_compound_statement()?,
+            },
+            info,
+        )
+        .map_err(|e| self.err_type_error(e, info.index))?;
         self.function().set_body(function_body);
 
         let function = self.take_function();
@@ -760,7 +778,7 @@ impl<'a> Parser<'a> {
     // declaration = declspec (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
     fn parse_declaration(&mut self, info: Info) -> Result<Node<'a>, ParseError<'a>> {
         let base_type = self.parse_declaration_spec()?;
-        let mut statements = vec![];
+        let mut compound_statements = vec![];
         let mut decl_count = 0;
 
         while let Some(Token { kind, info }) = self.tokens().peek() {
@@ -795,12 +813,23 @@ impl<'a> Parser<'a> {
                     info,
                 )
                 .map_err(|e| self.err_type_error(e, info.index))?;
-                statements.push(assignment);
+                let expr_stmt = Node::new(
+                    NodeKind::unary(UnaryKind::ExprStatement, Box::new(assignment)),
+                    info,
+                )
+                .map_err(|e| self.err_type_error(e, info.index))?;
+                compound_statements.push(expr_stmt);
             }
         }
 
-        Node::new(NodeKind::ExprStatement { statements }, info)
-            .map_err(|e| self.err_type_error(e, info.index))
+        Node::new(
+            NodeKind::CompoundStatement {
+                kind: CompoundStatementKind::Block,
+                nodes: compound_statements,
+            },
+            info,
+        )
+        .map_err(|e| self.err_type_error(e, info.index))
     }
 
     // stmt = "return" expr ";"
@@ -937,15 +966,22 @@ impl<'a> Parser<'a> {
                 let &info = info;
 
                 self.tokens().next();
-                self.parse_compound_statement(info)
+                Node::new(
+                    NodeKind::CompoundStatement {
+                        kind: CompoundStatementKind::Block,
+                        nodes: self.parse_compound_statement()?,
+                    },
+                    info,
+                )
+                .map_err(|e| self.err_type_error(e, info.index))
             }
             _ => self.parse_expr_statement(),
         }
     }
 
     // compound-stmt = (declaration | stmt)* "}"
-    fn parse_compound_statement(&mut self, info: Info) -> Result<Node<'a>, ParseError<'a>> {
-        let mut compound_statements = vec![];
+    fn parse_compound_statement(&mut self) -> Result<Vec<Node<'a>>, ParseError<'a>> {
+        let mut nodes = vec![];
 
         while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation("}") = kind {
@@ -964,16 +1000,18 @@ impl<'a> Parser<'a> {
                 self.parse_statement()
             }?;
 
-            compound_statements.push(compound_statement);
+            nodes.push(compound_statement);
         }
 
-        Node::new(
-            NodeKind::Block {
-                compound_statements,
-            },
-            info,
-        )
-        .map_err(|e| self.err_type_error(e, info.index))
+        // TODO: remove
+        // Node::new(
+        //     NodeKind::Block {
+        //         compound_statements: nodes,
+        //     },
+        //     info,
+        // )
+        // .map_err(|e| self.err_type_error(e, info.index))
+        Ok(nodes)
     }
 
     // expr-stmt = expr? ";"
@@ -984,14 +1022,26 @@ impl<'a> Parser<'a> {
         }) = self.tokens().peek()
         {
             self.tokens().next();
-            return Node::new(NodeKind::ExprStatement { statements: vec![] }, *info)
-                .map_err(|e| self.err_type_error(e, info.index));
+            return Node::new(
+                NodeKind::CompoundStatement {
+                    kind: CompoundStatementKind::Block,
+                    nodes: vec![],
+                },
+                *info,
+            )
+            .map_err(|e| self.err_type_error(e, info.index));
         };
 
-        let node = self.parse_expression()?;
+        let expression = self.parse_expression()?;
+        let info = expression.info;
+        let expr_stmt = Node::new(
+            NodeKind::unary(UnaryKind::ExprStatement, Box::new(expression)),
+            info,
+        )
+        .map_err(|e| self.err_type_error(e, info.index))?;
         self.expect_next(TokenKind::Punctuation(";"))?;
 
-        Ok(node)
+        Ok(expr_stmt)
     }
 
     // expr = assign
@@ -1048,15 +1098,38 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // primary = "(" expr ")" | "sizeof" unary | ident func-args? | str | num
+    // primary = "(" "{" stmt+ "}" ")"
+    //        | "(" expr ")"
+    //        | "sizeof" unary
+    //        | ident func-args?
+    //        | str
+    //        | num
     fn parse_primary(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
         let &info = info;
-
         match kind {
             TokenKind::Punctuation("(") => {
+                if let Some(Token {
+                    kind: TokenKind::Punctuation("{"),
+                    ..
+                }) = self.tokens().peek()
+                {
+                    self.tokens().next();
+
+                    let nodes = self.parse_compound_statement()?;
+                    self.expect_next(TokenKind::Punctuation(")"))?;
+                    return Ok(Node::new(
+                        NodeKind::CompoundStatement {
+                            kind: CompoundStatementKind::StatementExpr,
+                            nodes,
+                        },
+                        info,
+                    )
+                    .map_err(|e| self.err_type_error(e, info.index))?);
+                }
+
                 let node = self.parse_expression()?;
                 self.expect_next(TokenKind::Punctuation(")"))?;
                 Ok(node)
@@ -1293,6 +1366,7 @@ impl<'a> Parser<'a> {
             TypeError::InvalidPointerDeref => ParseErrorKind::InvalidPointerDeref,
             TypeError::InvalidOperands => ParseErrorKind::InvalidOperands,
             TypeError::NonLValueAssignment => ParseErrorKind::NonLValueAssignment,
+            TypeError::StatementExprReturnsVoid => ParseErrorKind::StatementExprReturnsVoid,
         };
 
         ParseError {

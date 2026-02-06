@@ -2,6 +2,8 @@ use std::rc::Rc;
 
 use crate::parser::{BinaryKind, NodeKind, UnaryKind};
 
+use super::{CompoundStatementKind, Node};
+
 #[derive(Debug)]
 pub struct Type {
     pub kind: TypeKind,
@@ -56,6 +58,7 @@ pub enum TypeError {
     InvalidPointerDeref,
     InvalidOperands,
     NonLValueAssignment,
+    StatementExprReturnsVoid,
 }
 
 impl Type {
@@ -148,12 +151,30 @@ impl Type {
                     _ => Err(TypeError::InvalidPointerDeref),
                 },
                 UnaryKind::Return => Ok(Self::none()),
+                UnaryKind::ExprStatement => Ok(lhs.node_type.clone()),
             },
-            NodeKind::ExprStatement { .. } => Ok(Self::none()),
-            NodeKind::Block { .. } => Ok(Self::none()),
             NodeKind::If { .. } => Ok(Self::none()),
             NodeKind::Loop { .. } => Ok(Self::none()),
             NodeKind::FunctionCall { .. } => Ok(Self::integer()),
+            NodeKind::CompoundStatement { kind, nodes } => match kind {
+                CompoundStatementKind::Block => Ok(Self::none()),
+                CompoundStatementKind::StatementExpr => {
+                    if let Some(Node {
+                        kind:
+                            NodeKind::Unary {
+                                kind: UnaryKind::ExprStatement,
+                                ..
+                            },
+                        node_type,
+                        ..
+                    }) = nodes.last()
+                    {
+                        Ok(node_type.clone())
+                    } else {
+                        Err(TypeError::StatementExprReturnsVoid)
+                    }
+                }
+            },
         }
     }
 }

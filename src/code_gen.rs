@@ -261,25 +261,18 @@ impl<'a> CodeGen<'a> {
                     self.traverse(lhs)?;
                     self.load(&node.node_type);
                 }
+                UnaryKind::ExprStatement => self.traverse(lhs)?,
             },
             NodeKind::Numeric(value) => self
                 .instructions
                 .push(format!("  mov ${value}, %rax").into()),
-            NodeKind::ExprStatement { statements } => {
-                statements
-                    .iter()
-                    .try_for_each(|statement| self.traverse(statement))?;
-                assert!(self.depth == 0);
-            }
             NodeKind::Variable(..) => {
                 self.generate_address(node)?;
                 self.load(&node.node_type);
             }
-            NodeKind::Block {
-                compound_statements,
-            } => compound_statements
-                .iter()
-                .try_for_each(|statement| self.traverse(statement))?,
+            NodeKind::CompoundStatement { nodes, .. } => {
+                nodes.iter().try_for_each(|node| self.traverse(node))?
+            }
             NodeKind::If {
                 condition,
                 then_block,

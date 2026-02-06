@@ -26,6 +26,15 @@ fn hex_sequence() {
 }
 
 #[test]
+fn statement_expression() {
+    assert_exit_status("int main() { return ({ 0; }); }", 0);
+    assert_exit_status("int main() { return ({ 0; 1; 2; }); }", 2);
+    assert_exit_status("int main() { ({ 0; return 1; 2; }); return 3; }", 1);
+    assert_exit_status("int main() { return ({ 1; }) + ({ 2; }) + ({ 3; }); }", 6);
+    assert_exit_status("int main() { return ({ int x=3; x; }); }", 3);
+}
+
+#[test]
 fn escape_sequences() {
     assert_exit_status(r#"int main() { return "\a"[0]; }"#, 7);
     assert_exit_status(r#"int main() { return "\b"[0]; }"#, 8);
