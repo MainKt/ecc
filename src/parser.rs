@@ -204,21 +204,19 @@ impl<'a> TranslationUnit<'a> {
 pub struct Function<'a> {
     name: &'a str,
     params: Vec<Rc<Object<'a>>>,
-    body: Node<'a>,
+    body: Vec<Node<'a>>,
     locals: HashMap<&'a str, Rc<Object<'a>>>,
     offset: usize,
 }
 
 impl<'a> Function<'a> {
     fn new() -> Self {
-        // get rid of this someday :(
         Self {
             name: "",
             params: vec![],
             locals: HashMap::new(),
             offset: 0,
-            body: Node::new(NodeKind::Numeric(0), Info { index: 0 })
-                .expect("this wasn't even serious to begin with"),
+            body: vec![],
         }
     }
 
@@ -238,11 +236,11 @@ impl<'a> Function<'a> {
         self.name = name
     }
 
-    fn set_body(&mut self, node: Node<'a>) {
-        self.body = node;
+    fn set_body(&mut self, nodes: Vec<Node<'a>>) {
+        self.body = nodes;
     }
 
-    pub fn body(&self) -> &Node<'a> {
+    pub fn body(&self) -> &[Node<'a>] {
         &self.body
     }
 
@@ -463,14 +461,14 @@ impl<'a> Parser<'a> {
 
     // program = (function-definition | global-variable)*
     pub fn parse(mut self) -> Result<Object<'a>, ParseError<'a>> {
-        while let Some(Token { kind, info }) = self.tokens().peek() {
+        while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::EOF = kind {
                 break;
             }
 
             let decl_type = self.parse_declaration_spec()?;
             if self.is_following_function(&decl_type)? {
-                self.parse_function(decl_type.clone(), *info)?;
+                self.parse_function(decl_type.clone())?;
             } else {
                 self.parse_global_variable(decl_type)?;
             }
@@ -506,19 +504,12 @@ impl<'a> Parser<'a> {
     }
 
     // function = compound-stmt*
-    fn parse_function(&mut self, return_type: Rc<Type>, info: Info) -> Result<(), ParseError<'a>> {
+    fn parse_function(&mut self, return_type: Rc<Type>) -> Result<(), ParseError<'a>> {
         let (identifier, decl_type) = self.parse_declarator(return_type.clone())?;
         self.function().set_name(identifier);
 
         self.expect_next(TokenKind::Punctuation("{"))?;
-        let function_body = Node::new(
-            NodeKind::CompoundStatement {
-                kind: CompoundStatementKind::Block,
-                nodes: self.parse_compound_statement()?,
-            },
-            info,
-        )
-        .map_err(|e| self.err_type_error(e, info.index))?;
+        let function_body = self.parse_compound_statement()?;
         self.function().set_body(function_body);
 
         let function = self.take_function();
@@ -1003,14 +994,6 @@ impl<'a> Parser<'a> {
             nodes.push(compound_statement);
         }
 
-        // TODO: remove
-        // Node::new(
-        //     NodeKind::Block {
-        //         compound_statements: nodes,
-        //     },
-        //     info,
-        // )
-        // .map_err(|e| self.err_type_error(e, info.index))
         Ok(nodes)
     }
 

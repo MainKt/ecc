@@ -94,8 +94,8 @@ impl<'a> CodeGen<'a> {
             self.instructions
                 .push(format!("  mov {register}, {}(%rbp)", param.local_offset()).into());
         }
-
-        self.traverse(function.body())?;
+        // NOTE: maybe make NodeKind::Function{..} ?
+        function.body().iter().try_for_each(|n| self.traverse(n))?;
 
         self.instructions
             .push(format!(".L.return.{}:", function.name()).into());
