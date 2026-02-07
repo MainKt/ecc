@@ -8,6 +8,7 @@ pub fn errx(msg: &str) -> ! {
 #[derive(Debug, Copy, Clone)]
 pub struct Info {
     pub index: usize,
+    pub line: usize,
 }
 
 pub fn unique_name() -> String {
@@ -19,17 +20,16 @@ pub fn info_msg(
     f: &mut std::fmt::Formatter<'_>,
     file: &str,
     content: &str,
-    ptr_index: usize,
+    info: Info,
 ) -> std::fmt::Result {
-    let start = content[..ptr_index].rfind('\n').map_or(0, |i| i + 1);
-    let end = content[ptr_index..]
+    let start = content[..info.index].rfind('\n').map_or(0, |i| i + 1);
+    let end = content[info.index..]
         .find('\n')
-        .map_or(content.len(), |i| ptr_index + i);
+        .map_or(content.len(), |i| info.index + i);
     let line = &content[start..end].trim_end_matches('\r');
-    let line_no = content[..ptr_index].matches('\n').count() + 1;
-    let info = format!("{file}:{line_no}: ");
-    writeln!(f, "{info}{line}")?;
-    let column = info.len() + ptr_index - start;
+    let info_msg = format!("{file}:{}: ", info.line);
+    writeln!(f, "{info_msg}{line}")?;
+    let column = info_msg.len() + info.index - start;
     write!(f, "{:>width$}^ ", "", width = column)
 }
 

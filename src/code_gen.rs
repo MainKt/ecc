@@ -3,13 +3,13 @@ use crate::{
         BinaryKind, Function, Lifetime, Node, NodeKind, Object, ObjectKind, UnaryKind,
         types::{DerivedKind, Type, TypeKind},
     },
-    util,
+    util::{self, Info},
 };
 use std::{borrow::Cow, rc::Rc};
 
 #[derive(Debug)]
 pub enum CodeGenErrorKind {
-    NonLValueAssignment { index: usize },
+    NonLValueAssignment,
 }
 
 #[derive(Debug)]
@@ -17,13 +17,14 @@ pub struct CodeGenError<'a> {
     file: &'a str,
     input: &'a str,
     kind: CodeGenErrorKind,
+    info: Info,
 }
 
 impl<'a> std::fmt::Display for CodeGenError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        util::info_msg(f, self.file, self.input, self.info)?;
         match self.kind {
-            CodeGenErrorKind::NonLValueAssignment { index } => {
-                util::info_msg(f, self.file, self.input, index)?;
+            CodeGenErrorKind::NonLValueAssignment => {
                 write!(f, "not an lvalue")
             }
         }
@@ -79,7 +80,8 @@ impl<'a> CodeGen<'a> {
         self.instructions
             .push(format!("  .globl {}", function.name()).into());
         self.instructions.push("  .text".into());
-        self.instructions.push(format!("{}:", function.name()).into());
+        self.instructions
+            .push(format!("{}:", function.name()).into());
         self.instructions.push("  push %rbp".into());
         self.instructions.push("  mov %rsp, %rbp".into());
         self.instructions
@@ -114,6 +116,8 @@ impl<'a> CodeGen<'a> {
         mut self,
         object: Object<'a>,
     ) -> Result<Vec<Cow<'a, str>>, CodeGenError<'a>> {
+        self.instructions
+            .push(format!(r#"  .file 1 "{}""#, self.file).into());
         let ObjectKind::TranslationUnit(translation_unit) = object.kind else {
             return Ok(vec![]);
         };
@@ -166,7 +170,7 @@ impl<'a> CodeGen<'a> {
                 self.traverse(lhs)?;
                 self.generate_address(rhs)
             }
-            _ => Err(self.err_non_lvalue_assigment(info.index)),
+            _ => Err(self.emit_error(CodeGenErrorKind::NonLValueAssignment, *info)),
         }
     }
 
@@ -209,6 +213,9 @@ impl<'a> CodeGen<'a> {
     }
 
     fn traverse(&mut self, node: &Node) -> Result<(), CodeGenError<'a>> {
+        self.instructions
+            .push(format!("  .loc 1 {}", node.info.line).into());
+
         match &node.kind {
             NodeKind::Binary { kind, lhs, rhs, .. } => match kind {
                 BinaryKind::Add => {
@@ -350,11 +357,12 @@ impl<'a> CodeGen<'a> {
         Ok(())
     }
 
-    fn err_non_lvalue_assigment(&self, index: usize) -> CodeGenError<'a> {
+    fn emit_error(&self, kind: CodeGenErrorKind, info: Info) -> CodeGenError<'a> {
         CodeGenError {
             file: self.file,
-            kind: CodeGenErrorKind::NonLValueAssignment { index },
+            kind,
             input: self.input,
+            info,
         }
     }
 

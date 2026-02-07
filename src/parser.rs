@@ -350,13 +350,13 @@ pub enum ParseErrorKind<'a> {
 pub struct ParseError<'a> {
     file: &'a str,
     input: &'a str,
-    index: usize,
+    info: Info,
     kind: ParseErrorKind<'a>,
 }
 
 impl<'a> std::fmt::Display for ParseError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        util::info_msg(f, self.file, self.input, self.index)?;
+        util::info_msg(f, self.file, self.input, self.info)?;
         match &self.kind {
             ParseErrorKind::ExtraToken => write!(f, "extra token"),
             ParseErrorKind::UnexpectedToken { expected } => write!(f, "expected `{expected}'"),
@@ -407,7 +407,7 @@ impl<'a> Parser<'a> {
         if kind == token.kind {
             Ok(())
         } else {
-            Err(self.err_unexpected_token(kind, token.info.index))
+            Err(self.err_unexpected_token(kind, token.info))
         }
     }
 
@@ -524,7 +524,7 @@ impl<'a> Parser<'a> {
                 ),
                 *info,
             )
-            .map_err(|e| self.err_type_error(e, info.index))?
+            .map_err(|e| self.err_type_error(e, *info))?
         }
 
         Ok(node)
@@ -574,7 +574,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?;
+                    .map_err(|e| self.err_type_error(e, info))?;
                 }
                 TokenKind::Punctuation("<=") => {
                     self.tokens().next();
@@ -586,7 +586,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?;
+                    .map_err(|e| self.err_type_error(e, info))?;
                 }
                 TokenKind::Punctuation(">") => {
                     self.tokens().next();
@@ -598,7 +598,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?;
+                    .map_err(|e| self.err_type_error(e, info))?;
                 }
                 TokenKind::Punctuation(">=") => {
                     self.tokens().next();
@@ -610,7 +610,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?;
+                    .map_err(|e| self.err_type_error(e, info))?;
                 }
                 _ => break,
             }
@@ -636,7 +636,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?
+                    .map_err(|e| self.err_type_error(e, info))?
                 }
                 TokenKind::Punctuation("!=") => {
                     self.tokens().next();
@@ -648,7 +648,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?
+                    .map_err(|e| self.err_type_error(e, info))?
                 }
                 _ => break,
             }
@@ -665,7 +665,7 @@ impl<'a> Parser<'a> {
         match kind {
             TokenKind::Keyword("char") => Ok(Type::char()),
             TokenKind::Keyword("int") => Ok(Type::integer()),
-            _ => Err(self.err_unexpected_token(TokenKind::Keyword("int|char"), info.index)),
+            _ => Err(self.err_unexpected_token(TokenKind::Keyword("int|char"), *info)),
         }
     }
 
@@ -708,7 +708,7 @@ impl<'a> Parser<'a> {
                         return Err(self.err_unusual_end_of_tokens());
                     };
                     let TokenKind::Numeric(size) = kind else {
-                        return Err(self.emit_error(ParseErrorKind::ExpectedNumber, info.index));
+                        return Err(self.emit_error(ParseErrorKind::ExpectedNumber, *info));
                     };
                     self.expect_next(TokenKind::Punctuation("]"))?;
 
@@ -741,7 +741,7 @@ impl<'a> Parser<'a> {
             return Err(self.err_unusual_end_of_tokens());
         };
         let TokenKind::Identifier(identifier) = kind else {
-            return Err(self.emit_error(ParseErrorKind::ExpectedVariableName, info.index));
+            return Err(self.emit_error(ParseErrorKind::ExpectedVariableName, *info));
         };
 
         let decl_type = self.parse_type_suffix(decl_type)?;
@@ -779,7 +779,7 @@ impl<'a> Parser<'a> {
                 self.tokens().next();
 
                 let variable = Node::new(NodeKind::Variable(object), info)
-                    .map_err(|e| self.err_type_error(e, info.index))?;
+                    .map_err(|e| self.err_type_error(e, info))?;
                 let assignment = Node::new(
                     NodeKind::binary(
                         BinaryKind::Assign,
@@ -788,12 +788,12 @@ impl<'a> Parser<'a> {
                     ),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?;
+                .map_err(|e| self.err_type_error(e, info))?;
                 let expr_stmt = Node::new(
                     NodeKind::unary(UnaryKind::ExprStatement, Box::new(assignment)),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?;
+                .map_err(|e| self.err_type_error(e, info))?;
                 compound_statements.push(expr_stmt);
             }
         }
@@ -805,7 +805,7 @@ impl<'a> Parser<'a> {
             },
             info,
         )
-        .map_err(|e| self.err_type_error(e, info.index))
+        .map_err(|e| self.err_type_error(e, info))
     }
 
     // stmt = "return" expr ";"
@@ -827,7 +827,7 @@ impl<'a> Parser<'a> {
                     NodeKind::unary(UnaryKind::Return, Box::new(self.parse_expression()?)),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?;
+                .map_err(|e| self.err_type_error(e, info))?;
 
                 self.expect_next(TokenKind::Punctuation(";"))?;
 
@@ -864,7 +864,7 @@ impl<'a> Parser<'a> {
                     },
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))
+                .map_err(|e| self.err_type_error(e, info))
             }
             Some(Token {
                 kind: TokenKind::Keyword("for"),
@@ -910,7 +910,7 @@ impl<'a> Parser<'a> {
                     },
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))
+                .map_err(|e| self.err_type_error(e, info))
             }
             Some(Token {
                 kind: TokenKind::Keyword("while"),
@@ -933,7 +933,7 @@ impl<'a> Parser<'a> {
                     },
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))
+                .map_err(|e| self.err_type_error(e, info))
             }
             Some(Token {
                 kind: TokenKind::Punctuation("{"),
@@ -949,7 +949,7 @@ impl<'a> Parser<'a> {
                     },
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))
+                .map_err(|e| self.err_type_error(e, info))
             }
             _ => self.parse_expr_statement(),
         }
@@ -999,7 +999,7 @@ impl<'a> Parser<'a> {
                 },
                 *info,
             )
-            .map_err(|e| self.err_type_error(e, info.index));
+            .map_err(|e| self.err_type_error(e, *info));
         };
 
         let expression = self.parse_expression()?;
@@ -1008,7 +1008,7 @@ impl<'a> Parser<'a> {
             NodeKind::unary(UnaryKind::ExprStatement, Box::new(expression)),
             info,
         )
-        .map_err(|e| self.err_type_error(e, info.index))?;
+        .map_err(|e| self.err_type_error(e, info))?;
         self.expect_next(TokenKind::Punctuation(";"))?;
 
         Ok(expr_stmt)
@@ -1033,7 +1033,7 @@ impl<'a> Parser<'a> {
                 ),
                 *info,
             )
-            .map_err(|e| self.err_type_error(e, info.index))?);
+            .map_err(|e| self.err_type_error(e, *info))?);
         }
 
         Ok(assignment)
@@ -1059,7 +1059,7 @@ impl<'a> Parser<'a> {
         self.expect_next(TokenKind::Punctuation(")"))?;
 
         Node::new(NodeKind::FunctionCall { name, args }, info)
-            .map_err(|e| self.err_type_error(e, info.index))
+            .map_err(|e| self.err_type_error(e, info))
     }
 
     // postfix = primary ("[" expr "]")*
@@ -1082,7 +1082,7 @@ impl<'a> Parser<'a> {
                 ),
                 *info,
             )
-            .map_err(|e| self.err_type_error(e, info.index))?
+            .map_err(|e| self.err_type_error(e, *info))?
         }
 
         Ok(node)
@@ -1117,7 +1117,7 @@ impl<'a> Parser<'a> {
                         },
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?);
+                    .map_err(|e| self.err_type_error(e, info))?);
                 }
 
                 let node = self.parse_expression()?;
@@ -1136,7 +1136,7 @@ impl<'a> Parser<'a> {
 
                 let object = self.get_variable(name, info)?;
                 Ok(Node::new(NodeKind::Variable(object), info)
-                    .map_err(|e| self.err_type_error(e, info.index))?)
+                    .map_err(|e| self.err_type_error(e, info))?)
             }
             TokenKind::String(string) => {
                 let mut bytes: Vec<_> = string.chars().map(|c| c as u8).collect();
@@ -1150,17 +1150,17 @@ impl<'a> Parser<'a> {
                     .translation_unit
                     .allocate_object(object.name.clone(), object);
                 Ok(Node::new(NodeKind::Variable(object), info)
-                    .map_err(|e| self.err_type_error(e, info.index))?)
+                    .map_err(|e| self.err_type_error(e, info))?)
             }
             TokenKind::Keyword("sizeof") => {
                 let size = self.parse_unary()?.node_type.size;
 
                 Ok(Node::new(NodeKind::Numeric(size), info)
-                    .map_err(|e| self.err_type_error(e, info.index))?)
+                    .map_err(|e| self.err_type_error(e, info))?)
             }
             TokenKind::Numeric(num) => Ok(Node::new(NodeKind::Numeric(*num), info)
-                .map_err(|e| self.err_type_error(e, info.index))?),
-            _ => Err(self.emit_error(ParseErrorKind::ExpectedExpression, info.index)),
+                .map_err(|e| self.err_type_error(e, info))?),
+            _ => Err(self.emit_error(ParseErrorKind::ExpectedExpression, info)),
         }
     }
 
@@ -1183,7 +1183,7 @@ impl<'a> Parser<'a> {
                     NodeKind::unary(UnaryKind::Negate, Box::new(self.parse_unary()?)),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?)
+                .map_err(|e| self.err_type_error(e, info))?)
             }
             TokenKind::Punctuation("&") => {
                 self.tokens().next();
@@ -1191,7 +1191,7 @@ impl<'a> Parser<'a> {
                     NodeKind::unary(UnaryKind::Address, Box::new(self.parse_unary()?)),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?)
+                .map_err(|e| self.err_type_error(e, info))?)
             }
             TokenKind::Punctuation("*") => {
                 self.tokens().next();
@@ -1200,7 +1200,7 @@ impl<'a> Parser<'a> {
                     NodeKind::unary(UnaryKind::Deref, Box::new(self.parse_unary()?)),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?)
+                .map_err(|e| self.err_type_error(e, info))?)
             }
             _ => self.parse_postfix(),
         }
@@ -1223,7 +1223,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?
+                    .map_err(|e| self.err_type_error(e, info))?
                 }
                 TokenKind::Punctuation("/") => {
                     self.tokens().next();
@@ -1235,7 +1235,7 @@ impl<'a> Parser<'a> {
                         ),
                         info,
                     )
-                    .map_err(|e| self.err_type_error(e, info.index))?
+                    .map_err(|e| self.err_type_error(e, info))?
                 }
                 _ => break,
             }
@@ -1253,7 +1253,7 @@ impl<'a> Parser<'a> {
         match (&&lhs.node_type.kind, &rhs.node_type.kind) {
             (TypeKind::Integer(..), TypeKind::Integer(..)) => {
                 Ok(Node::new(NodeKind::binary(BinaryKind::Add, lhs, rhs), info)
-                    .map_err(|e| self.err_type_error(e, info.index))?)
+                    .map_err(|e| self.err_type_error(e, info))?)
             }
             (TypeKind::Integer(..), TypeKind::Derived { to, .. })
             | (TypeKind::Derived { to, .. }, TypeKind::Integer(..)) => {
@@ -1269,20 +1269,20 @@ impl<'a> Parser<'a> {
                         rhs,
                         Box::new(
                             Node::new(NodeKind::Numeric(derived_element_size), info)
-                                .map_err(|e| self.err_type_error(e, info.index))?,
+                                .map_err(|e| self.err_type_error(e, info))?,
                         ),
                     ),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?;
+                .map_err(|e| self.err_type_error(e, info))?;
 
                 Ok(
                     Node::new(NodeKind::binary(BinaryKind::Add, lhs, Box::new(rhs)), info)
-                        .map_err(|e| self.err_type_error(e, info.index))?,
+                        .map_err(|e| self.err_type_error(e, info))?,
                 )
             }
             (TypeKind::Derived { .. }, TypeKind::Derived { .. }) | _ => {
-                Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info.index))
+                Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info))
             }
         }
     }
@@ -1298,7 +1298,7 @@ impl<'a> Parser<'a> {
                 NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                 info,
             )
-            .map_err(|e| self.err_type_error(e, info.index))?),
+            .map_err(|e| self.err_type_error(e, info))?),
             (TypeKind::Derived { to, .. }, TypeKind::Integer(..)) => {
                 let rhs = Node::new(
                     NodeKind::binary(
@@ -1306,18 +1306,18 @@ impl<'a> Parser<'a> {
                         rhs,
                         Box::new(
                             Node::new(NodeKind::Numeric(to.size), info)
-                                .map_err(|e| self.err_type_error(e, info.index))?,
+                                .map_err(|e| self.err_type_error(e, info))?,
                         ),
                     ),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?;
+                .map_err(|e| self.err_type_error(e, info))?;
 
                 Ok(Node::new(
                     NodeKind::binary(BinaryKind::Subtract, lhs, Box::new(rhs)),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?)
+                .map_err(|e| self.err_type_error(e, info))?)
             }
             (TypeKind::Derived { .. }, TypeKind::Derived { .. }) => {
                 let lhs_size = lhs.node_type.size;
@@ -1333,14 +1333,14 @@ impl<'a> Parser<'a> {
                         Box::new(difference),
                         Box::new(
                             Node::new(NodeKind::Numeric(lhs_size), info)
-                                .map_err(|e| self.err_type_error(e, info.index))?,
+                                .map_err(|e| self.err_type_error(e, info))?,
                         ),
                     ),
                     info,
                 )
-                .map_err(|e| self.err_type_error(e, info.index))?)
+                .map_err(|e| self.err_type_error(e, info))?)
             }
-            _ => Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info.index)),
+            _ => Err(TypeError::InvalidOperands).map_err(|e| self.err_type_error(e, info)),
         }
     }
 
@@ -1348,10 +1348,10 @@ impl<'a> Parser<'a> {
         self.current_function()
             .get_local(name)
             .or_else(|| self.translation_unit.get_object(name))
-            .ok_or_else(|| self.emit_error(ParseErrorKind::UndefinedVariable, info.index))
+            .ok_or_else(|| self.emit_error(ParseErrorKind::UndefinedVariable, info))
     }
 
-    fn err_type_error(&self, type_error: TypeError, index: usize) -> ParseError<'a> {
+    fn err_type_error(&self, type_error: TypeError, info: Info) -> ParseError<'a> {
         let kind = match type_error {
             TypeError::InvalidPointerDeref => ParseErrorKind::InvalidPointerDeref,
             TypeError::InvalidOperands => ParseErrorKind::InvalidOperands,
@@ -1359,28 +1359,35 @@ impl<'a> Parser<'a> {
             TypeError::StatementExprReturnsVoid => ParseErrorKind::StatementExprReturnsVoid,
         };
 
-        self.emit_error(kind, index)
+        self.emit_error(kind, info)
     }
 
-    fn emit_error(&self, kind: ParseErrorKind<'a>, index: usize) -> ParseError<'a> {
+    fn emit_error(&self, kind: ParseErrorKind<'a>, info: Info) -> ParseError<'a> {
         ParseError {
             file: self.file,
             input: self.input,
             kind,
-            index,
+            info,
         }
     }
 
     fn err_unusual_end_of_tokens(&self) -> ParseError<'a> {
-        self.emit_error(ParseErrorKind::UnusualEndOfTokens, self.input.len())
+        let index = self.input.len();
+        self.emit_error(
+            ParseErrorKind::UnusualEndOfTokens,
+            Info {
+                index,
+                line: self.input[..index].matches('\n').count() + 1,
+            },
+        )
     }
 
-    fn err_unexpected_token(&self, expected_kind: TokenKind<'a>, index: usize) -> ParseError<'a> {
+    fn err_unexpected_token(&self, expected_kind: TokenKind<'a>, info: Info) -> ParseError<'a> {
         self.emit_error(
             ParseErrorKind::UnexpectedToken {
                 expected: expected_kind,
             },
-            index,
+            info,
         )
     }
 }

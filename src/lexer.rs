@@ -48,12 +48,12 @@ pub struct LexError<'a> {
     file: &'a str,
     input: &'a str,
     kind: LexErrorKind,
-    index: usize,
+    info: Info,
 }
 
 impl<'a> std::fmt::Display for LexError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        util::info_msg(f, self.file, self.input, self.index)?;
+        util::info_msg(f, self.file, self.input, self.info)?;
         match self.kind {
             LexErrorKind::InvalidToken => write!(f, "invalid token"),
             LexErrorKind::UnclosedBlockComment => write!(f, "unclosed block comment"),
@@ -103,7 +103,10 @@ impl<'a> Lexer<'a> {
 
                     tokens.push(Token {
                         kind: TokenKind::Numeric(num.parse().expect("should parse as a number")),
-                        info: Info { index },
+                        info: Info {
+                            index,
+                            line: self.line_number(index),
+                        },
                     });
                 }
                 '/' if matches!(self.chars.peek(), Some((_, '/'))) => {
@@ -124,29 +127,42 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     if !is_closed {
-                        return Err(self.emit_error(LexErrorKind::UnclosedBlockComment, index));
+                        return Err(self.emit_error(
+                            LexErrorKind::UnclosedBlockComment,
+                            Info {
+                                index,
+                                line: self.line_number(index),
+                            },
+                        ));
                     }
                 }
                 '"' => {
+                    let info = Info {
+                        index,
+                        line: self.line_number(index),
+                    };
                     let mut length = 0;
                     while let Some((_, c)) = self.chars.peek()
                         && *c != '"'
                     {
                         if matches!(c, '\n' | '\0') {
-                            return Err(self.emit_error(LexErrorKind::UnclosedStringLiteral, index));
+                            return Err(self.emit_error(LexErrorKind::UnclosedStringLiteral, info));
                         }
                         self.chars.next();
                         length += 1;
                     }
                     let Some((_, '"')) = self.chars.next() else {
-                        return Err(self.emit_error(LexErrorKind::UnclosedStringLiteral, index));
+                        return Err(self.emit_error(LexErrorKind::UnclosedStringLiteral, info));
                     };
 
                     let escaped = self
                         .to_escaped_string(&self.input[index + 1..index + 1 + length], index + 1)?;
                     tokens.push(Token {
                         kind: TokenKind::String(escaped),
-                        info: Info { index },
+                        info: Info {
+                            index,
+                            line: self.line_number(index),
+                        },
                     });
                 }
                 _ if Lexer::is_identifier_head(c) => {
@@ -167,10 +183,18 @@ impl<'a> Lexer<'a> {
 
                     tokens.push(Token {
                         kind,
-                        info: Info { index },
+                        info: Info {
+                            index,
+                            line: self.line_number(index),
+                        },
                     });
                 }
                 _ => {
+                    let info = Info {
+                        index,
+                        line: self.line_number(index),
+                    };
+
                     if let Some(length) = self.punctuation_len(index) {
                         for _ in 1..length {
                             self.chars.next();
@@ -178,10 +202,10 @@ impl<'a> Lexer<'a> {
 
                         tokens.push(Token {
                             kind: TokenKind::Punctuation(&self.input[index..index + length]),
-                            info: Info { index },
+                            info,
                         });
                     } else {
-                        return Err(self.emit_error(LexErrorKind::InvalidToken, index));
+                        return Err(self.emit_error(LexErrorKind::InvalidToken, info));
                     }
                 }
             }
@@ -191,6 +215,7 @@ impl<'a> Lexer<'a> {
             kind: TokenKind::EOF,
             info: Info {
                 index: self.input().len(),
+                line: self.line_number(self.input().len()),
             },
         });
 
@@ -263,7 +288,10 @@ impl<'a> Lexer<'a> {
                                 else {
                                     return Err(self.emit_error(
                                         LexErrorKind::InvalidHexEscapeSequence,
-                                        index + i,
+                                        Info {
+                                            index: index + i,
+                                            line: self.line_number(index + i),
+                                        },
                                     ));
                                 };
                                 Lexer::read_hex_seq(hex, &mut chars) as u8 as char
@@ -292,12 +320,16 @@ impl<'a> Lexer<'a> {
         .any(|&keyword| s == keyword)
     }
 
-    fn emit_error(&self, kind: LexErrorKind, index: usize) -> LexError<'a> {
+    fn line_number(&self, index: usize) -> usize {
+        self.input[..index].matches('\n').count() + 1
+    }
+
+    fn emit_error(&self, kind: LexErrorKind, info: Info) -> LexError<'a> {
         LexError {
             file: self.file,
             input: self.input,
             kind,
-            index,
+            info,
         }
     }
 }

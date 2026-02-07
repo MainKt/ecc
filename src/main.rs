@@ -68,7 +68,7 @@ fn main() {
         Err(err) => util::errx(&format!("{err}")),
     };
 
-    let mut output: Box<dyn Write> = match out_file.as_deref() {
+    let mut out: Box<dyn Write> = match out_file.as_deref() {
         Some("-") | None => Box::new(io::stdout()),
         Some(out_file) => {
             let out_file = match OpenOptions::new().write(true).create(true).open(out_file) {
@@ -78,10 +78,9 @@ fn main() {
             Box::new(out_file)
         }
     };
-
     if let Err(err) = instructions
         .iter()
-        .try_for_each(|instruction| writeln!(output, "{instruction}"))
+        .try_for_each(|instruction| writeln!(out, "{instruction}"))
     {
         util::errx(&format!("{err}"))
     };
