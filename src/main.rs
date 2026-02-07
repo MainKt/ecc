@@ -1,18 +1,43 @@
 use std::{
-    fs,
-    io::{self, Read},
+    fs::{self, OpenOptions},
+    io::{self, Read, Write},
 };
 
-use ecc::{code_gen::CodeGen, lexer::Lexer, parser::Parser, util};
+use ecc::{
+    code_gen::CodeGen,
+    get_opt::{ArgRef, ArgType, GetOpt},
+    lexer::Lexer,
+    parser::Parser,
+    util,
+};
 
 fn main() {
-    let mut args = std::env::args();
-    if args.len() != 2 {
-        util::errx("invalid number of arguments");
-    }
+    let long_opts = [("help", ArgType::None, None)].map(From::from);
+    let mut get_opt = GetOpt::new(std::env::args(), "o:", &long_opts, false);
+    let mut out_file: Option<String> = None;
+    for opt in get_opt.iter() {
+        let opt = match opt {
+            Ok(opt) => opt,
+            Err(err) => {
+                util::usage(std::io::stderr());
+                util::errx(&format!("{err}"))
+            }
+        };
 
-    let _exe_name = args.next().unwrap();
-    let file_name = args.next().unwrap();
+        match opt.as_ref() {
+            ArgRef::Flag('o', Some(file)) => out_file = Some(file.into()),
+            ArgRef::Name("help", None) => {
+                util::usage(std::io::stdout());
+                std::process::exit(0);
+            }
+            _ => unreachable!(),
+        }
+    }
+    let mut rest = get_opt.rest();
+    rest.next(); // skip executable name
+    let Some(file_name) = rest.next() else {
+        util::errx("no input files");
+    };
 
     let input = if file_name == "-" {
         let mut buffer = String::new();
@@ -42,7 +67,22 @@ fn main() {
         Ok(instructions) => instructions,
         Err(err) => util::errx(&format!("{err}")),
     };
-    for instruction in instructions {
-        println!("{instruction}")
-    }
+
+    let mut output: Box<dyn Write> = match out_file.as_deref() {
+        Some("-") | None => Box::new(io::stdout()),
+        Some(out_file) => {
+            let out_file = match OpenOptions::new().write(true).create(true).open(out_file) {
+                Ok(out_file) => out_file,
+                Err(err) => util::errx(&format!("{err}")),
+            };
+            Box::new(out_file)
+        }
+    };
+
+    if let Err(err) = instructions
+        .iter()
+        .try_for_each(|instruction| writeln!(output, "{instruction}"))
+    {
+        util::errx(&format!("{err}"))
+    };
 }

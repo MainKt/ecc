@@ -32,3 +32,8 @@ pub fn info_msg(
     let column = info.len() + ptr_index - start;
     write!(f, "{:>width$}^ ", "", width = column)
 }
+
+pub fn usage(mut stream: impl std::io::Write) {
+    let program = std::env::args().next().unwrap_or_else(|| "diff3".into());
+    writeln!(stream, "Usage: {program} [ -o <path> ] <file>").unwrap();
+}
