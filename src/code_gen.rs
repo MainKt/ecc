@@ -36,7 +36,7 @@ pub struct CodeGen<'a> {
     depth: usize,
     instructions: Vec<Cow<'a, str>>,
     block_count: usize,
-    current_function: &'a str,
+    current_function: Cow<'a, str>,
 }
 
 static ARG_REGISTERS_8: [&'static str; 6] = ["%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"];
@@ -50,7 +50,7 @@ impl<'a> CodeGen<'a> {
             depth: 0,
             instructions: vec![],
             block_count: 0,
-            current_function: "",
+            current_function: "".into(),
         }
     }
 
@@ -74,7 +74,7 @@ impl<'a> CodeGen<'a> {
     }
 
     fn emit_text(&mut self, function: &Function<'a>) -> Result<(), CodeGenError<'a>> {
-        self.current_function = function.name();
+        self.current_function = function.name().clone();
 
         self.instructions
             .push(format!("  .globl {}", function.name()).into());

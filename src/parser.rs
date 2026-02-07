@@ -166,7 +166,7 @@ impl<'a> Object<'a> {
 
     fn function(function: Function<'a>, object_type: Rc<Type>, lifetime: Lifetime) -> Self {
         Self {
-            name: function.name.into(),
+            name: function.name.clone(),
             kind: ObjectKind::Function { function },
             lifetime,
             object_type,
@@ -203,17 +203,17 @@ impl<'a> TranslationUnit<'a> {
 
 #[derive(Debug)]
 pub struct Function<'a> {
-    name: &'a str,
+    name: Cow<'a, str>,
     params: Vec<Rc<Object<'a>>>,
     body: Vec<Node<'a>>,
-    locals: HashMap<&'a str, Rc<Object<'a>>>,
+    locals: HashMap<Cow<'a, str>, Rc<Object<'a>>>,
     offset: usize,
 }
 
 impl<'a> Function<'a> {
     fn new() -> Self {
         Self {
-            name: "",
+            name: "".into(),
             params: vec![],
             locals: HashMap::new(),
             offset: 0,
@@ -225,15 +225,15 @@ impl<'a> Function<'a> {
         &self.params
     }
 
-    pub fn name(&self) -> &'a str {
-        self.name
+    pub fn name(&self) -> &Cow<'a, str> {
+        &self.name
     }
 
     fn push_param(&mut self, param: Rc<Object<'a>>) {
         self.params.push(param)
     }
 
-    fn set_name(&mut self, name: &'a str) {
+    fn set_name(&mut self, name: Cow<'a, str>) {
         self.name = name
     }
 
@@ -249,10 +249,14 @@ impl<'a> Function<'a> {
         self.locals.get(name).map(|l| l.clone())
     }
 
-    fn get_or_allocate_local(&mut self, name: &'a str, object_type: Rc<Type>) -> Rc<Object<'a>> {
+    fn get_or_allocate_local(
+        &mut self,
+        name: Cow<'a, str>,
+        object_type: Rc<Type>,
+    ) -> Rc<Object<'a>> {
         // NOTE: assigning offsets this way leads to a stack locals order
         // that is inverted compared to chibicc
-        let object = self.locals.entry(name).or_insert_with(|| {
+        let object = self.locals.entry(name.clone()).or_insert_with(|| {
             self.offset += object_type.size;
 
             Rc::new(Object {
@@ -375,7 +379,7 @@ impl<'a> Parser<'a> {
             .expect("Shouldn't have taken out the function this soon")
     }
 
-    fn function(&mut self) -> &mut Function<'a> {
+    fn current_function(&mut self) -> &mut Function<'a> {
         self.function.get_or_insert_with(|| Function::new())
     }
 
@@ -472,15 +476,15 @@ impl<'a> Parser<'a> {
     // function = compound-stmt*
     fn parse_function(&mut self, return_type: Rc<Type>) -> Result<(), ParseError<'a>> {
         let (identifier, decl_type) = self.parse_declarator(return_type.clone())?;
-        self.function().set_name(identifier);
+        self.current_function().set_name(identifier.into());
 
         self.expect_next(TokenKind::Punctuation("{"))?;
         let function_body = self.parse_compound_statement()?;
-        self.function().set_body(function_body);
+        self.current_function().set_body(function_body);
 
         let function = self.take_function();
         self.translation_unit.allocate(
-            function.name.into(),
+            function.name.clone(),
             Object::function(function, decl_type, Lifetime::Global),
         );
 
@@ -658,16 +662,16 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if !self.function().params().is_empty() {
+            if !self.current_function().params().is_empty() {
                 self.expect_next(TokenKind::Punctuation(","))?;
             }
 
             let param_type = self.parse_declaration_spec()?;
             let (param_name, param_type) = self.parse_declarator(param_type)?;
             let object = self
-                .function()
-                .get_or_allocate_local(param_name, param_type);
-            self.function().push_param(object);
+                .current_function()
+                .get_or_allocate_local(param_name.into(), param_type);
+            self.current_function().push_param(object);
         }
         self.expect_next(TokenKind::Punctuation(")"))?;
 
@@ -750,7 +754,9 @@ impl<'a> Parser<'a> {
             decl_count += 1;
 
             let (identifier, decl_type) = self.parse_declarator(base_type.clone())?;
-            let object = self.function().get_or_allocate_local(identifier, decl_type);
+            let object = self
+                .current_function()
+                .get_or_allocate_local(identifier.into(), decl_type);
 
             if let Some(Token {
                 kind: TokenKind::Punctuation("="),
@@ -1324,7 +1330,7 @@ impl<'a> Parser<'a> {
     }
 
     fn get_variable(&mut self, name: &str, info: Info) -> Result<Rc<Object<'a>>, ParseError<'a>> {
-        self.function()
+        self.current_function()
             .get_local(name)
             .or_else(|| self.translation_unit.get_object(name))
             .ok_or_else(|| self.emit_error(ParseErrorKind::UndefinedVariable, info.index))
