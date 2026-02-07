@@ -79,8 +79,7 @@ impl<'a> CodeGen<'a> {
         self.instructions
             .push(format!("  .globl {}", function.name()).into());
         self.instructions.push("  .text".into());
-        self.instructions
-            .push(format!("{}:", function.name()).into());
+        self.instructions.push(format!("{}:", function.name()).into());
         self.instructions.push("  push %rbp".into());
         self.instructions.push("  mov %rsp, %rbp".into());
         self.instructions

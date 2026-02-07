@@ -186,14 +186,8 @@ impl<'a> TranslationUnit<'a> {
         }
     }
 
-    fn get_or_allocate(&mut self, name: Cow<'a, str>, object: Object<'a>) -> Rc<Object<'a>> {
-        let object = self.objects.entry(name).or_insert_with(|| Rc::new(object));
-
-        Rc::clone(object)
-    }
-
-    fn allocate(&mut self, name: Cow<'a, str>, object: Object<'a>) {
-        self.objects.entry(name).or_insert_with(|| Rc::new(object));
+    fn allocate_object(&mut self, name: Cow<'a, str>, object: Object<'a>) -> Rc<Object<'a>> {
+        self.objects.entry(name).or_insert(Rc::new(object)).clone()
     }
 
     fn get_object(&self, name: &str) -> Option<Rc<Object<'a>>> {
@@ -204,9 +198,10 @@ impl<'a> TranslationUnit<'a> {
 #[derive(Debug)]
 pub struct Function<'a> {
     name: Cow<'a, str>,
-    params: Vec<Rc<Object<'a>>>,
     body: Vec<Node<'a>>,
-    locals: HashMap<Cow<'a, str>, Rc<Object<'a>>>,
+    params: Vec<Rc<Object<'a>>>,
+    locals: Vec<Rc<Object<'a>>>,
+    scopes: Vec<HashMap<Cow<'a, str>, Rc<Object<'a>>>>,
     offset: usize,
 }
 
@@ -215,22 +210,23 @@ impl<'a> Function<'a> {
         Self {
             name: "".into(),
             params: vec![],
-            locals: HashMap::new(),
+            locals: vec![],
             offset: 0,
             body: vec![],
+            scopes: vec![HashMap::new()],
         }
-    }
-
-    pub fn params(&self) -> &[Rc<Object<'a>>] {
-        &self.params
     }
 
     pub fn name(&self) -> &Cow<'a, str> {
         &self.name
     }
 
-    fn push_param(&mut self, param: Rc<Object<'a>>) {
-        self.params.push(param)
+    pub fn params(&'a self) -> &'a [Rc<Object<'a>>] {
+        &self.params
+    }
+
+    pub fn body(&'a self) -> &'a [Node<'a>] {
+        &self.body
     }
 
     fn set_name(&mut self, name: Cow<'a, str>) {
@@ -241,37 +237,57 @@ impl<'a> Function<'a> {
         self.body = nodes;
     }
 
-    pub fn body(&self) -> &[Node<'a>] {
-        &self.body
+    fn leave_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn enter_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn get_param(&self, name: &str) -> Option<Rc<Object<'a>>> {
+        self.params.iter().find(|p| p.name == name).cloned()
     }
 
     fn get_local(&self, name: &str) -> Option<Rc<Object<'a>>> {
-        self.locals.get(name).map(|l| l.clone())
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+            .cloned()
+            .or_else(|| self.get_param(name))
     }
 
-    fn get_or_allocate_local(
-        &mut self,
-        name: Cow<'a, str>,
-        object_type: Rc<Type>,
-    ) -> Rc<Object<'a>> {
-        // NOTE: assigning offsets this way leads to a stack locals order
-        // that is inverted compared to chibicc
-        let object = self.locals.entry(name.clone()).or_insert_with(|| {
-            self.offset += object_type.size;
-
-            Rc::new(Object {
-                name: name.into(),
-                kind: ObjectKind::Variable {
-                    initial_data: vec![],
-                },
-                lifetime: Lifetime::Local {
-                    offset: -(self.offset as isize),
-                },
-                object_type,
-            })
+    fn push_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type>) -> Rc<Object<'a>> {
+        self.offset += object_type.size;
+        let object = Rc::new(Object {
+            name: name.into(),
+            kind: ObjectKind::Variable {
+                initial_data: vec![],
+            },
+            lifetime: Lifetime::Local {
+                offset: -(self.offset as isize),
+            },
+            object_type,
         });
+        self.locals.push(object.clone());
+        object
+    }
 
-        Rc::clone(object)
+    // TODO: throw a redeclaration error when allocating local/param
+    // with same name in the same scope
+    fn allocate_param(&mut self, name: Cow<'a, str>, param_type: Rc<Type>) {
+        let object = self.push_local(name, param_type);
+        self.params.push(object);
+    }
+
+    fn allocate_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type>) -> Rc<Object<'a>> {
+        let object = self.push_local(name.clone(), object_type);
+        self.scopes
+            .last_mut()
+            .expect("should always have a scope")
+            .insert(name, object.clone());
+        object
     }
 
     pub fn stack_size(&self) -> usize {
@@ -376,7 +392,7 @@ impl<'a> Parser<'a> {
     fn take_function(&mut self) -> Function<'a> {
         self.function
             .take()
-            .expect("Shouldn't have taken out the function this soon")
+            .expect("shouldn't have taken out the function this soon")
     }
 
     fn current_function(&mut self) -> &mut Function<'a> {
@@ -449,26 +465,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_global_variable(&mut self, decl_type: Rc<Type>) -> Result<(), ParseError<'a>> {
-        let mut variables: Vec<Object> = vec![];
+        let mut decl_count = 0;
 
         while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation(";") = kind {
                 break;
             }
 
-            if !variables.is_empty() {
-                self.expect_next(TokenKind::Punctuation(","))?
+            if decl_count != 0 {
+                self.expect_next(TokenKind::Punctuation(","))?;
             }
+            decl_count += 1;
 
             let (name, variable_type) = self.parse_declarator(decl_type.clone())?;
-            variables.push(Object::global_variable(name, variable_type));
+            let variable = Object::global_variable(name, variable_type);
+
+            self.translation_unit
+                .allocate_object(variable.name.clone(), variable);
         }
         self.expect_next(TokenKind::Punctuation(";"))?;
-
-        for variable in variables {
-            self.translation_unit
-                .allocate(variable.name.clone(), variable);
-        }
 
         Ok(())
     }
@@ -483,8 +498,8 @@ impl<'a> Parser<'a> {
         self.current_function().set_body(function_body);
 
         let function = self.take_function();
-        self.translation_unit.allocate(
-            function.name.clone(),
+        self.translation_unit.allocate_object(
+            function.name().clone(),
             Object::function(function, decl_type, Lifetime::Global),
         );
 
@@ -668,10 +683,8 @@ impl<'a> Parser<'a> {
 
             let param_type = self.parse_declaration_spec()?;
             let (param_name, param_type) = self.parse_declarator(param_type)?;
-            let object = self
-                .current_function()
-                .get_or_allocate_local(param_name.into(), param_type);
-            self.current_function().push_param(object);
+            self.current_function()
+                .allocate_param(param_name.into(), param_type);
         }
         self.expect_next(TokenKind::Punctuation(")"))?;
 
@@ -756,7 +769,7 @@ impl<'a> Parser<'a> {
             let (identifier, decl_type) = self.parse_declarator(base_type.clone())?;
             let object = self
                 .current_function()
-                .get_or_allocate_local(identifier.into(), decl_type);
+                .allocate_local(identifier.into(), decl_type);
 
             if let Some(Token {
                 kind: TokenKind::Punctuation("="),
@@ -946,6 +959,7 @@ impl<'a> Parser<'a> {
     fn parse_compound_statement(&mut self) -> Result<Vec<Node<'a>>, ParseError<'a>> {
         let mut nodes = vec![];
 
+        self.current_function().enter_scope();
         while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation("}") = kind {
                 self.tokens().next();
@@ -965,6 +979,7 @@ impl<'a> Parser<'a> {
 
             nodes.push(compound_statement);
         }
+        self.current_function().leave_scope();
 
         Ok(nodes)
     }
@@ -1133,7 +1148,7 @@ impl<'a> Parser<'a> {
                 );
                 let object = self
                     .translation_unit
-                    .get_or_allocate(object.name.clone(), object);
+                    .allocate_object(object.name.clone(), object);
                 Ok(Node::new(NodeKind::Variable(object), info)
                     .map_err(|e| self.err_type_error(e, info.index))?)
             }

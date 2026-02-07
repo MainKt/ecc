@@ -3,6 +3,16 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn block_scope() {
+    assert_exit_status("int main() { int x=2; { int x=3; } return x; }", 2);
+    assert_exit_status(
+        "int main() { int x=2; { int x=3; } { int y=4; return x; }}",
+        2,
+    );
+    assert_exit_status("int main() { int x=2; { x=3; } return x; }", 3);
+}
+
+#[test]
 fn comma_operator() {
     assert_exit_status("int main() { return (1,2,3); }", 3);
     assert_exit_status("int main() { int i=2, j=3; (i=5,j)=6; return i; }", 5);
