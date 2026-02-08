@@ -3,6 +3,26 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn struct_tags() {
+    assert_exit_status(
+        "int main() { struct t {int a; int b;} x; struct t y; sizeof(y); }",
+        16,
+    );
+    assert_exit_status(
+        "int main() { struct t {int a; int b;}; struct t y; sizeof(y); }",
+        16,
+    );
+    assert_exit_status(
+        "int main() { struct t {char a[2];}; { struct t {char a[4];}; } struct t y; sizeof(y); }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { struct t {int x;}; int t=1; struct t y; y.x=2; t+y.x; }",
+        3,
+    );
+}
+
+#[test]
 fn structs() {
     assert_exit_status(
         "int main() { struct {int a; int b;} x; x.a=1; x.b=2; return x.a; }",

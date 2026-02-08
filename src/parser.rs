@@ -206,12 +206,27 @@ impl<'a> TranslationUnit<'a> {
 }
 
 #[derive(Debug)]
+pub struct Scope<'a> {
+    objects: HashMap<Cow<'a, str>, Rc<Object<'a>>>,
+    struct_tags: HashMap<Cow<'a, str>, Rc<Type<'a>>>,
+}
+
+impl<'a> Scope<'a> {
+    pub fn new() -> Self {
+        Self {
+            objects: HashMap::new(),
+            struct_tags: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Function<'a> {
     name: Cow<'a, str>,
     body: Vec<Node<'a>>,
     params: Vec<Rc<Object<'a>>>,
     locals: Vec<Rc<Object<'a>>>,
-    scopes: Vec<HashMap<Cow<'a, str>, Rc<Object<'a>>>>,
+    scopes: Vec<Scope<'a>>,
     offset: usize,
 }
 
@@ -223,7 +238,7 @@ impl<'a> Function<'a> {
             locals: vec![],
             offset: 0,
             body: vec![],
-            scopes: vec![HashMap::new()],
+            scopes: vec![Scope::new()],
         }
     }
 
@@ -252,7 +267,7 @@ impl<'a> Function<'a> {
     }
 
     fn enter_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(Scope::new());
     }
 
     fn get_param(&self, name: &str) -> Option<Rc<Object<'a>>> {
@@ -263,9 +278,25 @@ impl<'a> Function<'a> {
         self.scopes
             .iter()
             .rev()
-            .find_map(|scope| scope.get(name))
+            .find_map(|scope| scope.objects.get(name))
             .cloned()
             .or_else(|| self.get_param(name))
+    }
+
+    fn allocate_struct_tag(&mut self, name: Cow<'a, str>, struct_type: Rc<Type<'a>>) {
+        self.scopes
+            .last_mut()
+            .expect("should always have a scope")
+            .struct_tags
+            .insert(name, struct_type);
+    }
+
+    fn get_struct_tag(&self, name: &str) -> Option<Rc<Type<'a>>> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.struct_tags.get(name))
+            .cloned()
     }
 
     fn push_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type<'a>>) -> Rc<Object<'a>> {
@@ -297,6 +328,7 @@ impl<'a> Function<'a> {
         self.scopes
             .last_mut()
             .expect("should always have a scope")
+            .objects
             .insert(name, object.clone());
         object
     }
@@ -360,6 +392,7 @@ pub enum ParseErrorKind<'a> {
     ExpectedMemberIdentifier,
     InvalidStructMember { member: Cow<'a, str> },
     RedeclarationOfStructMember { member: &'a str },
+    UnknownStructType,
 }
 
 pub struct ParseError<'a> {
@@ -400,6 +433,7 @@ impl<'a> std::fmt::Display for ParseError<'a> {
             ParseErrorKind::RedeclarationOfStructMember { member } => {
                 write!(f, "redeclaration of struct member, `{member}'")
             }
+            ParseErrorKind::UnknownStructType => write!(f, "unknown struct type"),
         }
     }
 }
@@ -716,10 +750,34 @@ impl<'a> Parser<'a> {
         Ok(members)
     }
 
-    // struct-decl = "{" struct-members
+    // struct-decl = ident? "{" struct-members
     fn parse_struct_declaration(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
+        let mut tag = None;
+        if let Some(Token {
+            kind: TokenKind::Identifier(struct_tag),
+            info,
+            ..
+        }) = self.tokens().peek()
+        {
+            tag = Some(struct_tag);
+            self.tokens().next();
+            if let Some(Token { kind, .. }) = self.tokens().peek()
+                && kind != &TokenKind::Punctuation("{")
+            {
+                return self
+                    .current_function()
+                    .get_struct_tag(struct_tag)
+                    .ok_or_else(|| self.emit_error(ParseErrorKind::UnknownStructType, *info));
+            }
+        }
+
         self.expect_next(TokenKind::Punctuation("{"))?;
-        Ok(Type::struct_type(self.parse_struct_members()?))
+        let struct_type = Type::struct_type(self.parse_struct_members()?);
+        if let Some(&tag) = tag {
+            self.current_function()
+                .allocate_struct_tag(tag.into(), struct_type.clone());
+        }
+        Ok(struct_type)
     }
 
     // declspec = "char" | "int" | struct-decl
