@@ -8,6 +8,7 @@ use super::{CompoundStatementKind, Member, Node};
 pub struct Type<'a> {
     pub kind: TypeKind<'a>,
     pub size: usize,
+    pub alignment: usize,
 }
 
 #[derive(Debug)]
@@ -43,16 +44,19 @@ thread_local! {
     static NONE: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::None,
         size: 0,
+        alignment: 0,
     });
 
     static INTEGER: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Int),
-        size: 8
+        size: 8,
+        alignment: 8,
     });
 
     static CHAR: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Char),
-        size: 1
+        size: 1,
+        alignment: 1,
     });
 }
 
@@ -76,22 +80,27 @@ impl<'a> Type<'a> {
     }
 
     pub fn struct_type(members: Vec<(Cow<'a, str>, Rc<Type<'a>>)>) -> Rc<Self> {
-        let size = members.iter().fold(0, |size, (_, t)| size + t.size);
-        let mut offset = 0;
+        let mut offset: usize = 0;
+        let mut alignment: usize = 1;
         let members = members
             .into_iter()
             .map(|(name, member_type)| {
+                offset = offset.next_multiple_of(member_type.alignment);
                 let member = Rc::new(Member {
                     offset,
                     member_type,
                 });
                 offset += member.member_type.size;
+                if alignment < member.member_type.alignment {
+                    alignment = member.member_type.alignment
+                }
                 (name, member)
             })
             .collect();
         Rc::new(Self {
             kind: TypeKind::Struct { members },
-            size,
+            size: offset.next_multiple_of(alignment),
+            alignment,
         })
     }
 
@@ -106,6 +115,7 @@ impl<'a> Type<'a> {
                 to: to.clone(),
             },
             size: 8,
+            alignment: 8,
         })
     }
 
@@ -116,6 +126,7 @@ impl<'a> Type<'a> {
                 to: of.clone(),
             },
             size: of.size * length,
+            alignment: of.alignment,
         })
     }
 
@@ -126,6 +137,7 @@ impl<'a> Type<'a> {
                 params: vec![],
             },
             size: 0,
+            alignment: 0,
         })
     }
 

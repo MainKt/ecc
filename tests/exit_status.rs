@@ -44,11 +44,13 @@ fn structs() {
         "int main() { struct {char a; char b;} x; return sizeof(x); }",
         2,
     );
-    assert_exit_status(
-        "int main() { struct {char a; int b;} x; return sizeof(x); }",
-        9,
-    );
     assert_exit_status("int main() { struct {} x; return sizeof(x); }", 0);
+}
+
+#[test]
+fn struct_alignment() {
+    assert_exit_status("int main() { struct {char a; int b;} x; sizeof(x); }", 16);
+    assert_exit_status("int main() { struct {int a; char b;} x; sizeof(x); }", 16);
 }
 
 #[test]
