@@ -3,6 +3,87 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn structs() {
+    assert_exit_status(
+        "int main() { struct {int a; int b;} x; x.a=1; x.b=2; return x.a; }",
+        1,
+    );
+    assert_exit_status(
+        "int main() { struct {int a; int b;} x; x.a=1; x.b=2; return x.b; }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { struct {char a; int b; char c;} x; x.a=1; x.b=2; x.c=3; return x.a; }",
+        1,
+    );
+    assert_exit_status(
+        "int main() { struct {char a; int b; char c;} x; x.b=1; x.b=2; x.c=3; return x.b; }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { struct {char a; int b; char c;} x; x.a=1; x.b=2; x.c=3; return x.c; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { struct { struct { char b; } a; } x; x.a.b=6; return x.a.b; }",
+        6,
+    );
+    assert_exit_status("int main() { struct {int a;} x; return sizeof(x); }", 8);
+    assert_exit_status(
+        "int main() { struct {int a; int b;} x; return sizeof(x); }",
+        16,
+    );
+    assert_exit_status("int main() { struct {int a, b;} x; return sizeof(x); }", 16);
+    assert_exit_status("int main() { struct {int a[3];} x; return sizeof(x); }", 24);
+    assert_exit_status("int main() { struct {int a;} x[4]; return sizeof(x); }", 32);
+    assert_exit_status(
+        "int main() { struct {int a[3];} x[2]; return sizeof(x); }",
+        48,
+    );
+    assert_exit_status(
+        "int main() { struct {char a; char b;} x; return sizeof(x); }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { struct {char a; int b;} x; return sizeof(x); }",
+        9,
+    );
+    assert_exit_status("int main() { struct {} x; return sizeof(x); }", 0);
+}
+
+#[test]
+fn pointer_to_struct() {
+    assert_exit_status(
+        "int main() { struct {char a; char b;} x[3]; char *p=x; p[1]=19; return x[0].b; }",
+        19,
+    );
+    // assert_exit_status(
+    //     "int main() { struct {char a; char b;} x[3]; char *p=x; p[0]=0; return x[0].a; }",
+    //     0,
+    // );
+    // assert_exit_status(
+    //     "int main() { struct {char a; char b;} x[3]; char *p=x; p[1]=1; return x[0].b; }",
+    //     1,
+    // );
+    // assert_exit_status(
+    //     "int main() { struct {char a; char b;} x[3]; char *p=x; p[2]=2; return x[1].a; }",
+    //     2,
+    // );
+    // assert_exit_status(
+    //     "int main() { struct {char a; char b;} x[3]; char *p=x; p[3]=3; return x[1].b; }",
+    //     3,
+    // );
+    // assert_exit_status(
+    //     "int main() { struct {char a[3]; char b[5];} x; char *p=&x; x.a[0]=6; return p[0]; }",
+    //     6,
+    // );
+    // assert_exit_status(
+    //     "int main() { struct {char a[3]; char b[5];} x; char *p=&x; x.b[0]=7; return p[3]; }",
+    //     7,
+    // );
+}
+
+#[test]
 fn block_scope() {
     assert_exit_status("int main() { int x=2; { int x=3; } return x; }", 2);
     assert_exit_status(

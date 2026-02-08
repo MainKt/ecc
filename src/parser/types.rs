@@ -1,12 +1,12 @@
-use std::rc::Rc;
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use crate::parser::{BinaryKind, NodeKind, UnaryKind};
 
-use super::{CompoundStatementKind, Node};
+use super::{CompoundStatementKind, Member, Node};
 
 #[derive(Debug)]
-pub struct Type {
-    pub kind: TypeKind,
+pub struct Type<'a> {
+    pub kind: TypeKind<'a>,
     pub size: usize,
 }
 
@@ -23,45 +23,50 @@ pub enum Integer {
 }
 
 #[derive(Debug)]
-pub enum TypeKind {
+pub enum TypeKind<'a> {
     None,
     Integer(Integer),
     Derived {
         kind: DerivedKind,
-        to: Rc<Type>,
+        to: Rc<Type<'a>>,
     },
     Function {
-        params: Vec<Rc<Type>>,
-        return_type: Rc<Type>,
+        params: Vec<Rc<Type<'a>>>,
+        return_type: Rc<Type<'a>>,
+    },
+    Struct {
+        members: HashMap<Cow<'a, str>, Rc<Member<'a>>>,
     },
 }
 
 thread_local! {
-    static NONE: Rc<Type> = Rc::new(Type {
+    static NONE: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::None,
         size: 0,
     });
 
-    static INTEGER: Rc<Type> = Rc::new(Type {
+    static INTEGER: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Int),
         size: 8
     });
 
-    static CHAR: Rc<Type> = Rc::new(Type {
+    static CHAR: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Char),
         size: 1
     });
 }
 
 #[derive(Debug)]
-pub enum TypeError {
+pub enum TypeError<'a> {
     InvalidPointerDeref,
     InvalidOperands,
     NonLValueAssignment,
     StatementExprReturnsVoid,
+    MemberAccessOnNonStruct,
+    InvalidStructMember { member: Cow<'a, str> },
 }
 
-impl Type {
+impl<'a> Type<'a> {
     pub fn char() -> Rc<Self> {
         CHAR.with(|t| t.clone())
     }
@@ -70,8 +75,28 @@ impl Type {
         INTEGER.with(|t| t.clone())
     }
 
+    pub fn struct_type(members: Vec<(Cow<'a, str>, Rc<Type<'a>>)>) -> Rc<Self> {
+        let size = members.iter().fold(0, |size, (_, t)| size + t.size);
+        let mut offset = 0;
+        let members = members
+            .into_iter()
+            .map(|(name, member_type)| {
+                let member = Rc::new(Member {
+                    offset,
+                    member_type,
+                });
+                offset += member.member_type.size;
+                (name, member)
+            })
+            .collect();
+        Rc::new(Self {
+            kind: TypeKind::Struct { members },
+            size,
+        })
+    }
+
     pub fn is_type_name(name: &str) -> bool {
-        ["int", "char"].iter().any(|&t| t == name)
+        ["int", "char", "struct"].iter().any(|&t| t == name)
     }
 
     pub fn pointer_to(to: &Rc<Self>) -> Rc<Self> {
@@ -108,7 +133,7 @@ impl Type {
         NONE.with(|t| t.clone())
     }
 
-    pub fn of(kind: &NodeKind) -> Result<Rc<Self>, TypeError> {
+    pub fn of(kind: &NodeKind<'a>) -> Result<Rc<Self>, TypeError<'a>> {
         match kind {
             NodeKind::Numeric { .. } => Ok(Self::integer()),
             NodeKind::Variable(object) => Ok(object.object_type.clone()),
@@ -142,7 +167,7 @@ impl Type {
                         to,
                     } = &lhs.node_type.kind
                     {
-                        Ok(Self::pointer_to(to))
+                        Ok(Self::pointer_to(&to))
                     } else {
                         Ok(Self::pointer_to(&lhs.node_type))
                     }
@@ -176,6 +201,7 @@ impl Type {
                     }
                 }
             },
+            NodeKind::MemberAccess { member, .. } => Ok(member.member_type.clone()),
         }
     }
 }

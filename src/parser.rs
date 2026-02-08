@@ -11,11 +11,11 @@ use types::{Type, TypeError, TypeKind};
 pub struct Node<'a> {
     pub kind: NodeKind<'a>,
     pub info: Info,
-    pub node_type: Rc<Type>,
+    pub node_type: Rc<Type<'a>>,
 }
 
 impl<'a> Node<'a> {
-    fn new(kind: NodeKind<'a>, info: Info) -> Result<Self, TypeError> {
+    fn new(kind: NodeKind<'a>, info: Info) -> Result<Self, TypeError<'a>> {
         let node_type = Type::of(&kind)?;
 
         Ok(Self {
@@ -25,13 +25,19 @@ impl<'a> Node<'a> {
         })
     }
 
-    fn new_of_type(kind: NodeKind<'a>, info: Info, node_type: Rc<Type>) -> Self {
+    fn new_of_type(kind: NodeKind<'a>, info: Info, node_type: Rc<Type<'a>>) -> Self {
         Self {
             kind,
             info,
             node_type,
         }
     }
+}
+
+#[derive(Debug)]
+pub struct Member<'a> {
+    pub offset: usize,
+    pub member_type: Rc<Type<'a>>,
 }
 
 #[derive(Debug)]
@@ -67,6 +73,10 @@ pub enum CompoundStatementKind {
 pub enum NodeKind<'a> {
     Numeric(usize),
     Variable(Rc<Object<'a>>),
+    MemberAccess {
+        of: Box<Node<'a>>,
+        member: Rc<Member<'a>>,
+    },
     FunctionCall {
         name: &'a str,
         args: Vec<Node<'a>>,
@@ -118,7 +128,7 @@ pub struct Object<'a> {
     pub name: Cow<'a, str>,
     pub kind: ObjectKind<'a>,
     pub lifetime: Lifetime,
-    pub object_type: Rc<Type>,
+    pub object_type: Rc<Type<'a>>,
 }
 
 #[derive(Debug)]
@@ -138,7 +148,7 @@ impl<'a> Object<'a> {
 
     fn global_variable_with_data(
         name: Cow<'a, str>,
-        object_type: Rc<Type>,
+        object_type: Rc<Type<'a>>,
         initial_data: Vec<u8>,
     ) -> Self {
         Self {
@@ -151,7 +161,7 @@ impl<'a> Object<'a> {
         }
     }
 
-    fn global_variable(name: &'a str, object_type: Rc<Type>) -> Self {
+    fn global_variable(name: &'a str, object_type: Rc<Type<'a>>) -> Self {
         Self::global_variable_with_data(name.into(), object_type, vec![])
     }
 
@@ -164,7 +174,7 @@ impl<'a> Object<'a> {
         }
     }
 
-    fn function(function: Function<'a>, object_type: Rc<Type>, lifetime: Lifetime) -> Self {
+    fn function(function: Function<'a>, object_type: Rc<Type<'a>>, lifetime: Lifetime) -> Self {
         Self {
             name: function.name.clone(),
             kind: ObjectKind::Function { function },
@@ -258,7 +268,7 @@ impl<'a> Function<'a> {
             .or_else(|| self.get_param(name))
     }
 
-    fn push_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type>) -> Rc<Object<'a>> {
+    fn push_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type<'a>>) -> Rc<Object<'a>> {
         self.offset += object_type.size;
         let object = Rc::new(Object {
             name: name.into(),
@@ -276,12 +286,12 @@ impl<'a> Function<'a> {
 
     // TODO: throw a redeclaration error when allocating local/param
     // with same name in the same scope
-    fn allocate_param(&mut self, name: Cow<'a, str>, param_type: Rc<Type>) {
+    fn allocate_param(&mut self, name: Cow<'a, str>, param_type: Rc<Type<'a>>) {
         let object = self.push_local(name, param_type);
         self.params.push(object);
     }
 
-    fn allocate_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type>) -> Rc<Object<'a>> {
+    fn allocate_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type<'a>>) -> Rc<Object<'a>> {
         let object = self.push_local(name.clone(), object_type);
         self.scopes
             .last_mut()
@@ -345,6 +355,10 @@ pub enum ParseErrorKind<'a> {
     ExpectedVariableName,
     NonLValueAssignment,
     StatementExprReturnsVoid,
+    MemberAccessOnNonStruct,
+    ExpectedMemberIdentifier,
+    InvalidStructMember { member: Cow<'a, str> },
+    RedeclarationOfStructMember { member: &'a str },
 }
 
 pub struct ParseError<'a> {
@@ -365,6 +379,9 @@ impl<'a> std::fmt::Display for ParseError<'a> {
             ParseErrorKind::InvalidPointerDeref => write!(f, "invalid pointer dereference"),
             ParseErrorKind::ExpectedNumber => write!(f, "expected a number"),
             ParseErrorKind::ExpectedVariableName => write!(f, "expected a variable name"),
+            ParseErrorKind::ExpectedMemberIdentifier => {
+                write!(f, "expected struct member identifer")
+            }
             ParseErrorKind::UndefinedVariable => write!(f, "undefined variable"),
             ParseErrorKind::NonLValueAssignment => write!(f, "not an lvalue"),
             ParseErrorKind::UnusualEndOfTokens => {
@@ -372,6 +389,15 @@ impl<'a> std::fmt::Display for ParseError<'a> {
             }
             ParseErrorKind::StatementExprReturnsVoid => {
                 write!(f, "statement expression returning void is not supported")
+            }
+            ParseErrorKind::MemberAccessOnNonStruct => {
+                write!(f, "member access on non-struct type")
+            }
+            ParseErrorKind::InvalidStructMember { member } => {
+                write!(f, "no member `{member}' on struct")
+            }
+            ParseErrorKind::RedeclarationOfStructMember { member } => {
+                write!(f, "redeclaration of struct member, `{member}'")
             }
         }
     }
@@ -430,7 +456,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn is_following_function(&mut self, decl_type: &Rc<Type>) -> Result<bool, ParseError<'a>> {
+    fn is_following_function(&mut self, decl_type: &Rc<Type<'a>>) -> Result<bool, ParseError<'a>> {
         if let Some(Token {
             kind: TokenKind::Punctuation(";"),
             ..
@@ -464,7 +490,7 @@ impl<'a> Parser<'a> {
         Ok(Object::global_translation_unit(self.translation_unit))
     }
 
-    fn parse_global_variable(&mut self, decl_type: Rc<Type>) -> Result<(), ParseError<'a>> {
+    fn parse_global_variable(&mut self, decl_type: Rc<Type<'a>>) -> Result<(), ParseError<'a>> {
         let mut decl_count = 0;
 
         while let Some(Token { kind, .. }) = self.tokens().peek() {
@@ -489,7 +515,7 @@ impl<'a> Parser<'a> {
     }
 
     // function = compound-stmt*
-    fn parse_function(&mut self, return_type: Rc<Type>) -> Result<(), ParseError<'a>> {
+    fn parse_function(&mut self, return_type: Rc<Type<'a>>) -> Result<(), ParseError<'a>> {
         let (identifier, decl_type) = self.parse_declarator(return_type.clone())?;
         self.current_function().set_name(identifier.into());
 
@@ -657,21 +683,64 @@ impl<'a> Parser<'a> {
         Ok(node)
     }
 
-    // declspec = "char" | "int"
-    fn parse_declaration_spec(&mut self) -> Result<Rc<Type>, ParseError<'a>> {
+    // struct-members = (declspec declarator ("," declarator)* ";")*
+    fn parse_struct_members(
+        &mut self,
+    ) -> Result<Vec<(Cow<'a, str>, Rc<Type<'a>>)>, ParseError<'a>> {
+        let mut members = vec![];
+
+        while let Some(Token { kind, .. }) = self.tokens.peek() {
+            if let TokenKind::Punctuation("}") = kind {
+                break;
+            }
+            let base_type = self.parse_declaration_spec()?;
+            let mut decl_count = 0;
+
+            while let Some(Token { kind, .. }) = self.tokens.peek() {
+                if let TokenKind::Punctuation(";") = kind {
+                    break;
+                }
+                if decl_count != 0 {
+                    self.expect_next(TokenKind::Punctuation(","))?;
+                }
+                decl_count += 1;
+
+                let (member, member_type) = self.parse_declarator(base_type.clone())?;
+                members.push((member.into(), member_type));
+            }
+            self.expect_next(TokenKind::Punctuation(";"))?;
+        }
+        self.expect_next(TokenKind::Punctuation("}"))?;
+
+        Ok(members)
+    }
+
+    // struct-decl = "{" struct-members
+    fn parse_struct_declaration(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
+        self.expect_next(TokenKind::Punctuation("{"))?;
+        Ok(Type::struct_type(self.parse_struct_members()?))
+    }
+
+    // declspec = "char" | "int" | struct-decl
+    fn parse_declaration_spec(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
+
         match kind {
             TokenKind::Keyword("char") => Ok(Type::char()),
             TokenKind::Keyword("int") => Ok(Type::integer()),
-            _ => Err(self.err_unexpected_token(TokenKind::Keyword("int|char"), *info)),
+            TokenKind::Keyword("struct") => self.parse_struct_declaration(),
+            _ => Err(self.err_unexpected_token(TokenKind::Keyword("typename"), *info)),
         }
     }
 
     // func-params = (param ("," param)? ")"
     // param       = declspec declarator
-    fn parse_function_params(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
+    fn parse_function_params(
+        &mut self,
+        decl_type: Rc<Type<'a>>,
+    ) -> Result<Rc<Type<'a>>, ParseError<'a>> {
         while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation(")") = kind {
                 break;
@@ -694,7 +763,10 @@ impl<'a> Parser<'a> {
     // type-suffix = "(" func-params
     //             | "[" num "]" type-suffix
     //             | epsilon
-    fn parse_type_suffix(&mut self, decl_type: Rc<Type>) -> Result<Rc<Type>, ParseError<'a>> {
+    fn parse_type_suffix(
+        &mut self,
+        decl_type: Rc<Type<'a>>,
+    ) -> Result<Rc<Type<'a>>, ParseError<'a>> {
         if let Some(Token { kind, .. }) = self.tokens().peek() {
             match kind {
                 TokenKind::Punctuation("(") => {
@@ -725,8 +797,8 @@ impl<'a> Parser<'a> {
     // declarator = "*"* ident type-suffix
     fn parse_declarator(
         &mut self,
-        base_type: Rc<Type>,
-    ) -> Result<(&'a str, Rc<Type>), ParseError<'a>> {
+        base_type: Rc<Type<'a>>,
+    ) -> Result<(&'a str, Rc<Type<'a>>), ParseError<'a>> {
         let mut decl_type = base_type;
         while let Some(Token {
             kind: TokenKind::Punctuation("*"),
@@ -1062,27 +1134,73 @@ impl<'a> Parser<'a> {
             .map_err(|e| self.err_type_error(e, info))
     }
 
-    // postfix = primary ("[" expr "]")*
+    fn get_struct_member(
+        &mut self,
+        of: &Node<'a>,
+        info: Info,
+    ) -> Result<Rc<Member<'a>>, ParseError<'a>> {
+        let TypeKind::Struct { members } = &of.node_type.kind else {
+            return Err(self.emit_error(ParseErrorKind::MemberAccessOnNonStruct, info));
+        };
+
+        let Some(&Token {
+            kind: TokenKind::Identifier(member),
+            info,
+            ..
+        }) = self.tokens.next()
+        else {
+            return Err(self.emit_error(ParseErrorKind::ExpectedMemberIdentifier, info));
+        };
+
+        let Some(member) = members.get(member) else {
+            return Err(self.emit_error(
+                ParseErrorKind::InvalidStructMember {
+                    member: member.into(),
+                },
+                info,
+            ));
+        };
+
+        Ok(member.clone())
+    }
+
+    // postfix = primary ("[" expr "]" | "." ident)*
     fn parse_postfix(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_primary()?;
 
-        while let Some(Token {
-            kind: TokenKind::Punctuation("["),
-            info,
-        }) = self.tokens().peek()
-        {
-            self.tokens().next();
-            let index = self.parse_expression()?;
-            self.expect_next(TokenKind::Punctuation("]"))?;
-
-            node = Node::new(
-                NodeKind::unary(
-                    UnaryKind::Deref,
-                    Box::new(self.parse_addition(Box::new(node), Box::new(index), *info)?),
-                ),
-                *info,
-            )
-            .map_err(|e| self.err_type_error(e, *info))?
+        while let Some(Token { kind, info }) = self.tokens().peek() {
+            match kind {
+                TokenKind::Punctuation("[") => {
+                    self.tokens().next();
+                    let index = self.parse_expression()?;
+                    self.expect_next(TokenKind::Punctuation("]"))?;
+                    node = Node::new(
+                        NodeKind::unary(
+                            UnaryKind::Deref,
+                            Box::new(self.parse_addition(
+                                Box::new(node),
+                                Box::new(index),
+                                *info,
+                            )?),
+                        ),
+                        *info,
+                    )
+                    .map_err(|e| self.err_type_error(e, *info))?;
+                }
+                TokenKind::Punctuation(".") => {
+                    self.tokens().next();
+                    let member = self.get_struct_member(&node, *info)?;
+                    node = Node::new(
+                        NodeKind::MemberAccess {
+                            of: Box::new(node),
+                            member,
+                        },
+                        *info,
+                    )
+                    .map_err(|e| self.err_type_error(e, *info))?;
+                }
+                _ => break,
+            }
         }
 
         Ok(node)
@@ -1351,12 +1469,16 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.emit_error(ParseErrorKind::UndefinedVariable, info))
     }
 
-    fn err_type_error(&self, type_error: TypeError, info: Info) -> ParseError<'a> {
+    fn err_type_error(&self, type_error: TypeError<'a>, info: Info) -> ParseError<'a> {
         let kind = match type_error {
             TypeError::InvalidPointerDeref => ParseErrorKind::InvalidPointerDeref,
             TypeError::InvalidOperands => ParseErrorKind::InvalidOperands,
             TypeError::NonLValueAssignment => ParseErrorKind::NonLValueAssignment,
             TypeError::StatementExprReturnsVoid => ParseErrorKind::StatementExprReturnsVoid,
+            TypeError::MemberAccessOnNonStruct => ParseErrorKind::MemberAccessOnNonStruct,
+            TypeError::InvalidStructMember { member } => {
+                ParseErrorKind::InvalidStructMember { member }
+            }
         };
 
         self.emit_error(kind, info)

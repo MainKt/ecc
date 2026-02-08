@@ -314,7 +314,7 @@ impl<'a> Lexer<'a> {
 
     fn is_keyword(s: &str) -> bool {
         [
-            "return", "if", "else", "for", "while", "int", "sizeof", "char",
+            "return", "if", "else", "for", "while", "int", "sizeof", "char", "struct",
         ]
         .iter()
         .any(|&keyword| s == keyword)

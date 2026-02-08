@@ -156,6 +156,12 @@ impl<'a> CodeGen<'a> {
 
                 Ok(())
             }
+            NodeKind::MemberAccess { of, member, .. } => {
+                self.generate_address(of)?;
+                self.instructions
+                    .push(format!("  add ${}, %rax", member.offset).into());
+                Ok(())
+            }
             NodeKind::Unary {
                 kind: UnaryKind::Deref,
                 lhs,
@@ -290,7 +296,7 @@ impl<'a> CodeGen<'a> {
             NodeKind::Numeric(value) => self
                 .instructions
                 .push(format!("  mov ${value}, %rax").into()),
-            NodeKind::Variable(..) => {
+            NodeKind::MemberAccess { .. } | NodeKind::Variable(..) => {
                 self.generate_address(node)?;
                 self.load(&node.node_type);
             }
