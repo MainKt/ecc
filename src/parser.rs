@@ -1193,6 +1193,22 @@ impl<'a> Parser<'a> {
             .map_err(|e| self.err_type_error(e, info))
     }
 
+    fn struct_member_access(
+        &mut self,
+        node: Node<'a>,
+        info: Info,
+    ) -> Result<Node<'a>, ParseError<'a>> {
+        let member = self.get_struct_member(&node, info)?;
+        Node::new(
+            NodeKind::MemberAccess {
+                of: Box::new(node),
+                member,
+            },
+            info,
+        )
+        .map_err(|e| self.err_type_error(e, info))
+    }
+
     fn get_struct_member(
         &mut self,
         of: &Node<'a>,
@@ -1223,7 +1239,7 @@ impl<'a> Parser<'a> {
         Ok(member.clone())
     }
 
-    // postfix = primary ("[" expr "]" | "." ident)*
+    // postfix = primary ("[" expr "]" | "." ident | "->" ident)*
     fn parse_postfix(&mut self) -> Result<Node<'a>, ParseError<'a>> {
         let mut node = self.parse_primary()?;
 
@@ -1248,15 +1264,15 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Punctuation(".") => {
                     self.tokens().next();
-                    let member = self.get_struct_member(&node, *info)?;
-                    node = Node::new(
-                        NodeKind::MemberAccess {
-                            of: Box::new(node),
-                            member,
-                        },
-                        *info,
-                    )
-                    .map_err(|e| self.err_type_error(e, *info))?;
+                    node = self.struct_member_access(node, *info)?;
+                }
+                TokenKind::Punctuation("->") => {
+                    self.tokens().next();
+
+                    // x->y => (*x).y
+                    node = Node::new(NodeKind::unary(UnaryKind::Deref, Box::new(node)), *info)
+                        .map_err(|e| self.err_type_error(e, *info))?;
+                    node = self.struct_member_access(node, *info)?;
                 }
                 _ => break,
             }

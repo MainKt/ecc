@@ -3,6 +3,18 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn struct_pointer_deref_operator() {
+    assert_exit_status(
+        "int main() { struct t {char a;} x; struct t *y = &x; x.a=3; y->a; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { struct t {char a;} x; struct t *y = &x; y->a=3; x.a; }",
+        3,
+    );
+}
+
+#[test]
 fn struct_tags() {
     assert_exit_status(
         "int main() { struct t {int a; int b;} x; struct t y; sizeof(y); }",

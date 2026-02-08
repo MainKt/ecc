@@ -76,7 +76,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn punctuation_len(&self, index: usize) -> Option<usize> {
-        ["==", "!=", "<=", ">="]
+        ["==", "!=", "<=", ">=", "->"]
             .iter()
             .find_map(|p| self.input[index..].starts_with(p).then_some(p.len()))
             .or_else(|| {
