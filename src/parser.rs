@@ -270,6 +270,7 @@ impl<'a> Function<'a> {
 
     fn push_local(&mut self, name: Cow<'a, str>, object_type: Rc<Type<'a>>) -> Rc<Object<'a>> {
         self.offset += object_type.size;
+        self.offset = self.offset.next_multiple_of(object_type.alignment);
         let object = Rc::new(Object {
             name: name.into(),
             kind: ObjectKind::Variable {
@@ -1437,8 +1438,8 @@ impl<'a> Parser<'a> {
                 )
                 .map_err(|e| self.err_type_error(e, info))?)
             }
-            (TypeKind::Derived { .. }, TypeKind::Derived { .. }) => {
-                let lhs_size = lhs.node_type.size;
+            (TypeKind::Derived { to, .. }, TypeKind::Derived { .. }) => {
+                let lhs_base_size = to.size;
                 let difference = Node::new_of_type(
                     NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                     info,
@@ -1450,7 +1451,7 @@ impl<'a> Parser<'a> {
                         BinaryKind::Divide,
                         Box::new(difference),
                         Box::new(
-                            Node::new(NodeKind::Numeric(lhs_size), info)
+                            Node::new(NodeKind::Numeric(lhs_base_size), info)
                                 .map_err(|e| self.err_type_error(e, info))?,
                         ),
                     ),

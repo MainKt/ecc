@@ -48,6 +48,19 @@ fn structs() {
 }
 
 #[test]
+fn local_variable_alignment() {
+    assert_exit_status(
+        "int main() { int x; int y; char z; char *a=&z; char *b=&y; return b-a; }",
+        1,
+    );
+
+    assert_exit_status(
+        "int main() { int x; char y; int z; char *a=&y; char *b=&z; return a-b; }",
+        15,
+    );
+}
+
+#[test]
 fn struct_alignment() {
     assert_exit_status("int main() { struct {char a; int b;} x; sizeof(x); }", 16);
     assert_exit_status("int main() { struct {int a; char b;} x; sizeof(x); }", 16);
