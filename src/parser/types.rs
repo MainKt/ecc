@@ -34,6 +34,7 @@ pub enum CompositeKind {
 #[derive(Debug)]
 pub enum TypeKind<'a> {
     None,
+    Void,
     Integer(Integer),
     Derived {
         kind: DerivedKind,
@@ -54,6 +55,12 @@ thread_local! {
         kind: TypeKind::None,
         size: 0,
         alignment: 0,
+    });
+
+    static VOID: Rc<Type<'static>> = Rc::new(Type {
+        kind: TypeKind::Void,
+        size: 1,
+        alignment: 1,
     });
 
     static CHAR: Rc<Type<'static>> = Rc::new(Type {
@@ -172,7 +179,7 @@ impl<'a> Type<'a> {
     }
 
     pub fn is_type_name(name: &str) -> bool {
-        ["long", "int", "short", "char", "struct", "union"]
+        ["long", "int", "short", "char", "struct", "union", "void"]
             .iter()
             .any(|&t| t == name)
     }
@@ -208,6 +215,10 @@ impl<'a> Type<'a> {
             size: 0,
             alignment: 0,
         })
+    }
+
+    pub fn void() -> Rc<Self> {
+        VOID.with(|t| t.clone())
     }
 
     pub fn none() -> Rc<Self> {

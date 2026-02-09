@@ -3,6 +3,19 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn void_ptr() {
+    assert_exit_status(
+        r"
+        int main() {
+            void *p;
+            return sizeof(p);
+        }
+        ",
+        8,
+    );
+}
+
+#[test]
 fn function_declaration() {
     assert_exit_status(
         r"

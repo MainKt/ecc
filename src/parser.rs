@@ -389,6 +389,7 @@ pub enum ParseErrorKind<'a> {
     ExpectedNumber,
     ExpectedVariableName,
     NonLValueAssignment,
+    VariableDeclaredVoid,
     StatementExprReturnsVoid,
     MemberAccessOnNonComposite,
     ExpectedMemberIdentifier,
@@ -436,6 +437,7 @@ impl<'a> std::fmt::Display for ParseError<'a> {
                 write!(f, "redeclaration of struct member, `{member}'")
             }
             ParseErrorKind::UnknownCompositeType => write!(f, "unknown struct or union type"),
+            ParseErrorKind::VariableDeclaredVoid => write!(f, "variable declared void"),
         }
     }
 }
@@ -813,13 +815,15 @@ impl<'a> Parser<'a> {
         self.parse_struct_union_declaration(CompositeKind::Struct)
     }
 
-    // declspec = "char" | "short" | "int" | "long" | struct-decl
+    // declspec = "void" | "char" | "short" | "int" | "long"
+    //          | struct-decl | union-decl
     fn parse_declaration_spec(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
         };
 
         match kind {
+            TokenKind::Keyword("void") => Ok(Type::void()),
             TokenKind::Keyword("char") => Ok(Type::char()),
             TokenKind::Keyword("int") => Ok(Type::integer()),
             TokenKind::Keyword("long") => Ok(Type::long()),
@@ -954,6 +958,9 @@ impl<'a> Parser<'a> {
             decl_count += 1;
 
             let (identifier, decl_type) = self.parse_declarator(base_type.clone())?;
+            if let TypeKind::Void = decl_type.kind {
+                return Err(self.emit_error(ParseErrorKind::VariableDeclaredVoid, info));
+            }
             let object = self
                 .current_function()
                 .allocate_local(identifier.into(), decl_type);
