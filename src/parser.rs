@@ -868,7 +868,10 @@ impl<'a> Parser<'a> {
             [Spec::Char] => Ok(Type::char()),
             [Spec::Short] | [Spec::Short, Spec::Int] => Ok(Type::short()),
             [Spec::Int] => Ok(Type::int()),
-            [Spec::Long] | [Spec::Int, Spec::Long] => Ok(Type::long()),
+            [Spec::Long]
+            | [Spec::Long, Spec::Long]
+            | [Spec::Int, Spec::Long, Spec::Long]
+            | [Spec::Int, Spec::Long] => Ok(Type::long()),
             [Spec::Struct] | [Spec::Union] => Ok(composite_type),
             _ => Err(self.emit_error(ParseErrorKind::InvalidType, *info)),
         }

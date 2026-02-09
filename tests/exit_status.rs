@@ -3,6 +3,13 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn long_long() {
+    assert_exit_status("int main() { long long x; sizeof(x); }", 8);
+    assert_exit_status("int main() { int long x; sizeof(x); }", 8);
+    assert_exit_status("int main() { int long long x; sizeof(x); }", 8);
+}
+
+#[test]
 fn complex_type_declarations() {
     assert_exit_status("int main() { char x; sizeof(x); }", 1);
     assert_exit_status("int main() { short int x; sizeof(x); }", 2);
