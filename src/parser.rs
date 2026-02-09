@@ -197,7 +197,9 @@ impl<'a> TranslationUnit<'a> {
     }
 
     fn allocate_object(&mut self, name: Cow<'a, str>, object: Object<'a>) -> Rc<Object<'a>> {
-        self.objects.entry(name).or_insert(Rc::new(object)).clone()
+        let object = Rc::new(object);
+        self.objects.insert(name, object.clone());
+        object.clone()
     }
 
     fn get_object(&self, name: &str) -> Option<Rc<Object<'a>>> {
@@ -552,8 +554,22 @@ impl<'a> Parser<'a> {
     // function = compound-stmt*
     fn parse_function(&mut self, return_type: Rc<Type<'a>>) -> Result<(), ParseError<'a>> {
         let (identifier, decl_type) = self.parse_declarator(return_type.clone())?;
-        self.current_function().set_name(identifier.into());
 
+        if let Some(Token {
+            kind: TokenKind::Punctuation(";"),
+            ..
+        }) = self.tokens().peek()
+        {
+            self.tokens().next();
+            // function declaration
+            self.translation_unit.allocate_object(
+                identifier.into(),
+                Object::function(Function::new(), decl_type, Lifetime::Global),
+            );
+            return Ok(());
+        }
+
+        self.current_function().set_name(identifier.into());
         self.expect_next(TokenKind::Punctuation("{"))?;
         let function_body = self.parse_compound_statement()?;
         self.current_function().set_body(function_body);

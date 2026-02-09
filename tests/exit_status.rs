@@ -3,6 +3,20 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn function_declaration() {
+    assert_exit_status(
+        r"
+        int my_add(int a, int b);
+        int main() {
+            return add(1, 2);
+        }
+        int my_add(int a, int b) { return a + b; }
+        ",
+        3,
+    );
+}
+
+#[test]
 fn nested_type_declarations() {
     assert_exit_status("int main() { char *x[3]; sizeof(x); }", 24);
     assert_exit_status("int main() { char (*x)[3]; sizeof(x); }", 8);
@@ -718,18 +732,20 @@ fn assert_exit_status(program: &str, expected_status: i32) {
     let exe_path = dir.path().join("exe");
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
     let fn_defs = define_functions(&cc, &dir);
+    let assembling = Command::new(&cc)
+        .arg("-static")
+        .arg("-o")
+        .arg(&exe_path)
+        .arg(&asm_path)
+        .arg(&fn_defs)
+        .output()
+        .expect("failed to assemble");
     assert!(
-        Command::new(&cc)
-            .arg("-static")
-            .arg("-o")
-            .arg(&exe_path)
-            .arg(&asm_path)
-            .arg(&fn_defs)
-            .status()
-            .expect("failed to assemble")
-            .success(),
-        "\nprogram: {program}\nassembly:\n---------\n{}\n---------",
+        assembling.status.success(),
+        "\nprogram: {program}\nassembly:\n---------\n{}\n---------\n{:?}\n{}",
         String::from_utf8(asm_out.stdout).unwrap(),
+        assembling.status.code(),
+        String::from_utf8(assembling.stderr).unwrap()
     );
 
     let assemble = Command::new(exe_path).output().expect("failed to assemble");
