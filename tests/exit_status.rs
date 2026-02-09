@@ -3,6 +3,49 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn union_assignment() {
+    assert_exit_status(
+        "int main() { union {int a,b;} x,y; x.a=3; y.a=5; y=x; y.a; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { union {struct {int a,b;} c;} x,y; x.c.b=3; y.c.b=5; y=x; y.c.b; }",
+        3,
+    );
+}
+
+#[test]
+fn struct_assignment() {
+    assert_exit_status("int main() { struct {int a,b;} x,y; x.a=3; y=x; y.a; }", 3);
+    assert_exit_status(
+        "int main() { struct t {int a,b;}; struct t x; x.a=7; struct t y; struct t *z=&y; *z=x; y.a; }",
+        7,
+    );
+    assert_exit_status(
+        "int main() { struct t {int a,b;}; struct t x; x.a=7; struct t y, *p=&x, *q=&y; *q=*p; y.a; }",
+        7,
+    );
+    assert_exit_status(
+        "int main() { struct t {char a, b;} x, y; x.a=5; y=x; y.a; }",
+        5,
+    );
+
+    assert_exit_status("int main() { struct {int a,b;} x,y; x.a=3; y=x; y.a; }", 3);
+    assert_exit_status(
+        "int main() { struct t {int a,b;}; struct t x; x.a=7; struct t y; struct t *z=&y; *z=x; y.a; }",
+        7,
+    );
+    assert_exit_status(
+        "int main() { struct t {int a,b;}; struct t x; x.a=7; struct t y, *p=&x, *q=&y; *q=*p; y.a; }",
+        7,
+    );
+    assert_exit_status(
+        "int main() { struct t {char a, b;} x, y; x.a=5; y=x; y.a; }",
+        5,
+    );
+}
+
+#[test]
 fn union() {
     assert_exit_status(
         "int main() { union { int a; char b[6]; } x; sizeof(x); }",

@@ -193,7 +193,8 @@ impl<'a> CodeGen<'a> {
         if let TypeKind::Derived {
             kind: DerivedKind::Array { .. },
             ..
-        } = load_type.kind
+        }
+        | TypeKind::Composite { .. } = load_type.kind
         {
             return;
         }
@@ -209,6 +210,17 @@ impl<'a> CodeGen<'a> {
 
     fn store(&mut self, store_type: &Rc<Type>) {
         self.pop("%rdi");
+
+        if let TypeKind::Composite { .. } = &store_type.kind {
+            for i in 0..store_type.size {
+                self.instructions
+                    .push(format!("  mov {i}(%rax), %r8b").into());
+                self.instructions
+                    .push(format!("  mov %r8b, {i}(%rdi)").into());
+            }
+            return;
+        }
+
         self.instructions.push(
             format!(
                 "  mov %{}, (%rdi)",
