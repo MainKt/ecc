@@ -54,10 +54,10 @@ thread_local! {
         alignment: 0,
     });
 
-    static INTEGER: Rc<Type<'static>> = Rc::new(Type {
+    static INT: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Int),
-        size: 8,
-        alignment: 8,
+        size: 4,
+        alignment: 4,
     });
 
     static CHAR: Rc<Type<'static>> = Rc::new(Type {
@@ -83,7 +83,7 @@ impl<'a> Type<'a> {
     }
 
     pub fn integer() -> Rc<Self> {
-        INTEGER.with(|t| t.clone())
+        INT.with(|t| t.clone())
     }
 
     pub fn union_type(members: Vec<(Cow<'a, str>, Rc<Type<'a>>)>) -> Rc<Self> {

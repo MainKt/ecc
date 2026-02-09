@@ -41,6 +41,7 @@ pub struct CodeGen<'a> {
 }
 
 static ARG_REGISTERS_8: [&'static str; 6] = ["%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"];
+static ARG_REGISTERS_32: [&'static str; 6] = ["%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"];
 static ARG_REGISTERS_64: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
 
 impl<'a> CodeGen<'a> {
@@ -91,10 +92,10 @@ impl<'a> CodeGen<'a> {
             if i > function.params().len() {
                 break;
             }
-            let register = (if param.object_type.size == 1 {
-                ARG_REGISTERS_8
-            } else {
-                ARG_REGISTERS_64
+            let register = (match param.object_type.size {
+                1 => ARG_REGISTERS_8,
+                4 => ARG_REGISTERS_32,
+                _ => ARG_REGISTERS_64,
             })[i];
 
             self.instructions
@@ -199,13 +200,13 @@ impl<'a> CodeGen<'a> {
             return;
         }
 
-        self.instructions.push(
-            format!(
-                "  {} (%rax), %rax",
-                if load_type.size == 1 { "movsbq" } else { "mov" }
-            )
-            .into(),
-        )
+        let mov = match load_type.size {
+            1 => "movsbq",
+            4 => "movsxd",
+            _ => "mov",
+        };
+        self.instructions
+            .push(format!("  {mov} (%rax), %rax").into())
     }
 
     fn store(&mut self, store_type: &Rc<Type>) {
@@ -221,13 +222,13 @@ impl<'a> CodeGen<'a> {
             return;
         }
 
-        self.instructions.push(
-            format!(
-                "  mov %{}, (%rdi)",
-                if store_type.size == 1 { "al" } else { "rax" }
-            )
-            .into(),
-        )
+        let reg = match store_type.size {
+            1 => "al",
+            4 => "eax",
+            _ => "rax",
+        };
+        self.instructions
+            .push(format!("  mov %{reg}, (%rdi)").into())
     }
 
     fn traverse(&mut self, node: &Node) -> Result<(), CodeGenError<'a>> {

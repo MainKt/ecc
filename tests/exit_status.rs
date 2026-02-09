@@ -85,11 +85,11 @@ fn struct_pointer_deref_operator() {
 fn struct_tags() {
     assert_exit_status(
         "int main() { struct t {int a; int b;} x; struct t y; sizeof(y); }",
-        16,
+        8,
     );
     assert_exit_status(
         "int main() { struct t {int a; int b;}; struct t y; sizeof(y); }",
-        16,
+        8,
     );
     assert_exit_status(
         "int main() { struct t {char a[2];}; { struct t {char a[4];}; } struct t y; sizeof(y); }",
@@ -127,17 +127,17 @@ fn structs() {
         "int main() { struct { struct { char b; } a; } x; x.a.b=6; return x.a.b; }",
         6,
     );
-    assert_exit_status("int main() { struct {int a;} x; return sizeof(x); }", 8);
+    assert_exit_status("int main() { struct {int a;} x; return sizeof(x); }", 4);
     assert_exit_status(
         "int main() { struct {int a; int b;} x; return sizeof(x); }",
-        16,
+        8,
     );
-    assert_exit_status("int main() { struct {int a, b;} x; return sizeof(x); }", 16);
-    assert_exit_status("int main() { struct {int a[3];} x; return sizeof(x); }", 24);
-    assert_exit_status("int main() { struct {int a;} x[4]; return sizeof(x); }", 32);
+    assert_exit_status("int main() { struct {int a, b;} x; return sizeof(x); }", 8);
+    assert_exit_status("int main() { struct {int a[3];} x; return sizeof(x); }", 12);
+    assert_exit_status("int main() { struct {int a;} x[4]; return sizeof(x); }", 16);
     assert_exit_status(
         "int main() { struct {int a[3];} x[2]; return sizeof(x); }",
-        48,
+        24,
     );
     assert_exit_status(
         "int main() { struct {char a; char b;} x; return sizeof(x); }",
@@ -155,14 +155,14 @@ fn local_variable_alignment() {
 
     assert_exit_status(
         "int main() { int x; char y; int z; char *a=&y; char *b=&z; return a-b; }",
-        15,
+        7,
     );
 }
 
 #[test]
 fn struct_alignment() {
-    assert_exit_status("int main() { struct {char a; int b;} x; sizeof(x); }", 16);
-    assert_exit_status("int main() { struct {int a; char b;} x; sizeof(x); }", 16);
+    assert_exit_status("int main() { struct {char a; int b;} x; sizeof(x); }", 8);
+    assert_exit_status("int main() { struct {int a; char b;} x; sizeof(x); }", 8);
 }
 
 #[test]
@@ -299,23 +299,23 @@ fn global_variables() {
         "int x[4]; int main() { x[0]=0; x[1]=1; x[2]=2; x[3]=3; return x[3]; }",
         3,
     );
-    assert_exit_status("int x; int main() { return sizeof(x); }", 8);
-    assert_exit_status("int x[4]; int main() { return sizeof(x); }", 32);
+    assert_exit_status("int x; int main() { return sizeof(x); }", 4);
+    assert_exit_status("int x[4]; int main() { return sizeof(x); }", 16);
 }
 
 #[test]
 fn sizeof() {
-    assert_exit_status("int main() { int x; return sizeof(x); }", 8);
-    assert_exit_status("int main() { int x; return sizeof x; }", 8);
+    assert_exit_status("int main() { int x; return sizeof(x); }", 4);
+    assert_exit_status("int main() { int x; return sizeof x; }", 4);
     assert_exit_status("int main() { int *x; return sizeof(x); }", 8);
-    assert_exit_status("int main() { int x[4]; return sizeof(x); }", 32);
-    assert_exit_status("int main() { int x[3][4]; return sizeof(x); }", 96);
-    assert_exit_status("int main() { int x[3][4]; return sizeof(*x); }", 32);
-    assert_exit_status("int main() { int x[3][4]; return sizeof(**x); }", 8);
-    assert_exit_status("int main() { int x[3][4]; return sizeof(**x) + 1; }", 9);
-    assert_exit_status("int main() { int x[3][4]; return sizeof **x + 1; }", 9);
-    assert_exit_status("int main() { int x[3][4]; return sizeof(**x + 1); }", 8);
-    assert_exit_status("int main() { int x=1; return sizeof(x=2); }", 8);
+    assert_exit_status("int main() { int x[4]; return sizeof(x); }", 16);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(x); }", 48);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(*x); }", 16);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(**x); }", 4);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(**x) + 1; }", 5);
+    assert_exit_status("int main() { int x[3][4]; return sizeof **x + 1; }", 5);
+    assert_exit_status("int main() { int x[3][4]; return sizeof(**x + 1); }", 4);
+    assert_exit_status("int main() { int x=1; return sizeof(x=2); }", 4);
     assert_exit_status("int main() { int x=1; sizeof(x=2); return x; }", 1);
 }
 
@@ -444,7 +444,7 @@ fn multiple_variables() {
 fn address_of_and_deref() {
     assert_exit_status("int main() { int x=3; return *&x; }", 3);
     assert_exit_status(
-        "int main() { int x=3; int y=&x; int **z=&y; return **z; }",
+        "int main() { int x=3; int *y=&x; int **z=&y; return **z; }",
         3,
     );
     assert_exit_status("int main() { int x=3; int *y=&x; *y=5; return x; }", 5);
