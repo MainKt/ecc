@@ -797,7 +797,7 @@ impl<'a> Parser<'a> {
         self.parse_struct_union_declaration(CompositeKind::Struct)
     }
 
-    // declspec = "char" | "int" | struct-decl
+    // declspec = "char" | "short" | "int" | "long" | struct-decl
     fn parse_declaration_spec(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
         let Some(Token { kind, info }) = self.tokens().next() else {
             return Err(self.err_unusual_end_of_tokens());
@@ -806,6 +806,7 @@ impl<'a> Parser<'a> {
         match kind {
             TokenKind::Keyword("char") => Ok(Type::char()),
             TokenKind::Keyword("int") => Ok(Type::integer()),
+            TokenKind::Keyword("long") => Ok(Type::long()),
             TokenKind::Keyword("struct") => self.parse_struct_declaration(),
             TokenKind::Keyword("union") => self.parse_union_declaration(),
             _ => Err(self.err_unexpected_token(TokenKind::Keyword("typename"), *info)),

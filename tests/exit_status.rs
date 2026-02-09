@@ -3,6 +3,13 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn long() {
+    assert_exit_status("int main() { long x; sizeof(x); }", 8);
+    assert_exit_status("int main() { struct {char a; long b;} x; sizeof(x); }", 16);
+    assert_exit_status("int main() { return sub_long(7, 3, 3); }", 1);
+}
+
+#[test]
 fn union_assignment() {
     assert_exit_status(
         "int main() { union {int a,b;} x,y; x.a=3; y.a=5; y=x; y.a; }",
@@ -638,6 +645,7 @@ fn define_functions(cc: &str, dir: &TempDir) -> PathBuf {
     std::fs::write(
         &fn_defs,
         r"
+            int sub_long(long a, long b, long c) { return a - b - c; }
             int ret3() { return 3; }
             int ret5() { return 5; }
             int add(int x, int y) { return x + y; }

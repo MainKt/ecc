@@ -21,6 +21,7 @@ pub enum DerivedKind {
 pub enum Integer {
     Char,
     Int,
+    Long,
 }
 
 #[derive(Debug)]
@@ -54,16 +55,22 @@ thread_local! {
         alignment: 0,
     });
 
+    static CHAR: Rc<Type<'static>> = Rc::new(Type {
+        kind: TypeKind::Integer(Integer::Char),
+        size: 1,
+        alignment: 1,
+    });
+
     static INT: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Int),
         size: 4,
         alignment: 4,
     });
 
-    static CHAR: Rc<Type<'static>> = Rc::new(Type {
-        kind: TypeKind::Integer(Integer::Char),
-        size: 1,
-        alignment: 1,
+    static LONG: Rc<Type<'static>> = Rc::new(Type {
+        kind: TypeKind::Integer(Integer::Long),
+        size: 8,
+        alignment: 8,
     });
 }
 
@@ -84,6 +91,10 @@ impl<'a> Type<'a> {
 
     pub fn integer() -> Rc<Self> {
         INT.with(|t| t.clone())
+    }
+
+    pub fn long() -> Rc<Self> {
+        LONG.with(|t| t.clone())
     }
 
     pub fn union_type(members: Vec<(Cow<'a, str>, Rc<Type<'a>>)>) -> Rc<Self> {
@@ -150,7 +161,7 @@ impl<'a> Type<'a> {
     }
 
     pub fn is_type_name(name: &str) -> bool {
-        ["int", "char", "struct", "union"]
+        ["long", "int", "short", "char", "struct", "union"]
             .iter()
             .any(|&t| t == name)
     }
@@ -240,7 +251,7 @@ impl<'a> Type<'a> {
             },
             NodeKind::If { .. } => Ok(Self::none()),
             NodeKind::Loop { .. } => Ok(Self::none()),
-            NodeKind::FunctionCall { .. } => Ok(Self::integer()),
+            NodeKind::FunctionCall { .. } => Ok(Self::long()),
             NodeKind::CompoundStatement { kind, nodes } => match kind {
                 CompoundStatementKind::Block => Ok(Self::none()),
                 CompoundStatementKind::StatementExpr => {
