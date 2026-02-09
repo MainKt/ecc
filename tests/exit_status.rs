@@ -3,6 +3,30 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn union() {
+    assert_exit_status(
+        "int main() { union { int a; char b[6]; } x; sizeof(x); }",
+        8,
+    );
+    assert_exit_status(
+        "int main() { union { int a; char b[4]; } x; x.a = 515; x.b[0]; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { union { int a; char b[4]; } x; x.a = 515; x.b[1]; }",
+        2,
+    );
+    assert_exit_status(
+        "int main() { union { int a; char b[4]; } x; x.a = 515; x.b[2]; }",
+        0,
+    );
+    assert_exit_status(
+        "int main() { union { int a; char b[4]; } x; x.a = 515; x.b[3]; }",
+        0,
+    );
+}
+
+#[test]
 fn struct_pointer_deref_operator() {
     assert_exit_status(
         "int main() { struct t {char a;} x; struct t *y = &x; x.a=3; y->a; }",

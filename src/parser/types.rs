@@ -24,6 +24,12 @@ pub enum Integer {
 }
 
 #[derive(Debug)]
+pub enum CompositeKind {
+    Struct,
+    Union,
+}
+
+#[derive(Debug)]
 pub enum TypeKind<'a> {
     None,
     Integer(Integer),
@@ -35,7 +41,8 @@ pub enum TypeKind<'a> {
         params: Vec<Rc<Type<'a>>>,
         return_type: Rc<Type<'a>>,
     },
-    Struct {
+    Composite {
+        kind: CompositeKind,
         members: HashMap<Cow<'a, str>, Rc<Member<'a>>>,
     },
 }
@@ -79,6 +86,41 @@ impl<'a> Type<'a> {
         INTEGER.with(|t| t.clone())
     }
 
+    pub fn union_type(members: Vec<(Cow<'a, str>, Rc<Type<'a>>)>) -> Rc<Self> {
+        let members: HashMap<_, _> = members
+            .into_iter()
+            .map(|(name, member_type)| {
+                (
+                    name,
+                    Rc::new(Member {
+                        offset: 0,
+                        member_type,
+                    }),
+                )
+            })
+            .collect();
+
+        let alignment = members
+            .values()
+            .max_by_key(|m| m.member_type.alignment)
+            .map(|m| m.member_type.alignment)
+            .unwrap_or(0);
+        let size = members
+            .values()
+            .max_by_key(|m| m.member_type.size)
+            .map(|m| m.member_type.size)
+            .unwrap_or(0);
+
+        Rc::new(Self {
+            kind: TypeKind::Composite {
+                kind: CompositeKind::Union,
+                members,
+            },
+            size: size.next_multiple_of(alignment),
+            alignment,
+        })
+    }
+
     pub fn struct_type(members: Vec<(Cow<'a, str>, Rc<Type<'a>>)>) -> Rc<Self> {
         let mut offset: usize = 0;
         let mut alignment: usize = 1;
@@ -98,14 +140,19 @@ impl<'a> Type<'a> {
             })
             .collect();
         Rc::new(Self {
-            kind: TypeKind::Struct { members },
+            kind: TypeKind::Composite {
+                kind: CompositeKind::Struct,
+                members,
+            },
             size: offset.next_multiple_of(alignment),
             alignment,
         })
     }
 
     pub fn is_type_name(name: &str) -> bool {
-        ["int", "char", "struct"].iter().any(|&t| t == name)
+        ["int", "char", "struct", "union"]
+            .iter()
+            .any(|&t| t == name)
     }
 
     pub fn pointer_to(to: &Rc<Self>) -> Rc<Self> {

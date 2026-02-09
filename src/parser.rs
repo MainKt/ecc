@@ -5,7 +5,7 @@ use crate::{
     util::{self, Info},
 };
 use std::{borrow::Cow, collections::HashMap, iter::Peekable, rc::Rc, slice::Iter};
-use types::{Type, TypeError, TypeKind};
+use types::{CompositeKind, Type, TypeError, TypeKind};
 
 #[derive(Debug)]
 pub struct Node<'a> {
@@ -208,14 +208,14 @@ impl<'a> TranslationUnit<'a> {
 #[derive(Debug)]
 pub struct Scope<'a> {
     objects: HashMap<Cow<'a, str>, Rc<Object<'a>>>,
-    struct_tags: HashMap<Cow<'a, str>, Rc<Type<'a>>>,
+    tags: HashMap<Cow<'a, str>, Rc<Type<'a>>>,
 }
 
 impl<'a> Scope<'a> {
     pub fn new() -> Self {
         Self {
             objects: HashMap::new(),
-            struct_tags: HashMap::new(),
+            tags: HashMap::new(),
         }
     }
 }
@@ -283,19 +283,19 @@ impl<'a> Function<'a> {
             .or_else(|| self.get_param(name))
     }
 
-    fn allocate_struct_tag(&mut self, name: Cow<'a, str>, struct_type: Rc<Type<'a>>) {
+    fn allocate_tag(&mut self, name: Cow<'a, str>, struct_type: Rc<Type<'a>>) {
         self.scopes
             .last_mut()
             .expect("should always have a scope")
-            .struct_tags
+            .tags
             .insert(name, struct_type);
     }
 
-    fn get_struct_tag(&self, name: &str) -> Option<Rc<Type<'a>>> {
+    fn get_tag(&self, name: &str) -> Option<Rc<Type<'a>>> {
         self.scopes
             .iter()
             .rev()
-            .find_map(|scope| scope.struct_tags.get(name))
+            .find_map(|scope| scope.tags.get(name))
             .cloned()
     }
 
@@ -388,11 +388,11 @@ pub enum ParseErrorKind<'a> {
     ExpectedVariableName,
     NonLValueAssignment,
     StatementExprReturnsVoid,
-    MemberAccessOnNonStruct,
+    MemberAccessOnNonComposite,
     ExpectedMemberIdentifier,
-    InvalidStructMember { member: Cow<'a, str> },
+    InvalidCompositeMember { member: Cow<'a, str> },
     RedeclarationOfStructMember { member: &'a str },
-    UnknownStructType,
+    UnknownCompositeType,
 }
 
 pub struct ParseError<'a> {
@@ -424,16 +424,16 @@ impl<'a> std::fmt::Display for ParseError<'a> {
             ParseErrorKind::StatementExprReturnsVoid => {
                 write!(f, "statement expression returning void is not supported")
             }
-            ParseErrorKind::MemberAccessOnNonStruct => {
-                write!(f, "member access on non-struct type")
+            ParseErrorKind::MemberAccessOnNonComposite => {
+                write!(f, "not a struct nor a union")
             }
-            ParseErrorKind::InvalidStructMember { member } => {
-                write!(f, "no member `{member}' on struct")
+            ParseErrorKind::InvalidCompositeMember { member } => {
+                write!(f, "no such member `{member}'")
             }
             ParseErrorKind::RedeclarationOfStructMember { member } => {
                 write!(f, "redeclaration of struct member, `{member}'")
             }
-            ParseErrorKind::UnknownStructType => write!(f, "unknown struct type"),
+            ParseErrorKind::UnknownCompositeType => write!(f, "unknown struct or union type"),
         }
     }
 }
@@ -719,7 +719,7 @@ impl<'a> Parser<'a> {
     }
 
     // struct-members = (declspec declarator ("," declarator)* ";")*
-    fn parse_struct_members(
+    fn parse_struct_union_members(
         &mut self,
     ) -> Result<Vec<(Cow<'a, str>, Rc<Type<'a>>)>, ParseError<'a>> {
         let mut members = vec![];
@@ -750,34 +750,51 @@ impl<'a> Parser<'a> {
         Ok(members)
     }
 
-    // struct-decl = ident? "{" struct-members
-    fn parse_struct_declaration(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
+    // struct-union-decl = ident? ("{" members)?
+    fn parse_struct_union_declaration(
+        &mut self,
+        kind: CompositeKind,
+    ) -> Result<Rc<Type<'a>>, ParseError<'a>> {
         let mut tag = None;
         if let Some(Token {
-            kind: TokenKind::Identifier(struct_tag),
+            kind: TokenKind::Identifier(composite_tag),
             info,
             ..
         }) = self.tokens().peek()
         {
-            tag = Some(struct_tag);
+            tag = Some(composite_tag);
             self.tokens().next();
             if let Some(Token { kind, .. }) = self.tokens().peek()
                 && kind != &TokenKind::Punctuation("{")
             {
                 return self
                     .current_function()
-                    .get_struct_tag(struct_tag)
-                    .ok_or_else(|| self.emit_error(ParseErrorKind::UnknownStructType, *info));
+                    .get_tag(composite_tag)
+                    .ok_or_else(|| self.emit_error(ParseErrorKind::UnknownCompositeType, *info));
             }
         }
 
         self.expect_next(TokenKind::Punctuation("{"))?;
-        let struct_type = Type::struct_type(self.parse_struct_members()?);
+        let members = self.parse_struct_union_members()?;
+        let composite_type = match kind {
+            CompositeKind::Struct => Type::struct_type(members),
+            CompositeKind::Union => Type::union_type(members),
+        };
         if let Some(&tag) = tag {
             self.current_function()
-                .allocate_struct_tag(tag.into(), struct_type.clone());
+                .allocate_tag(tag.into(), composite_type.clone());
         }
-        Ok(struct_type)
+        Ok(composite_type)
+    }
+
+    // union-decl = struct-union-decl
+    fn parse_union_declaration(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
+        self.parse_struct_union_declaration(CompositeKind::Union)
+    }
+
+    // struct-decl = struct-union-decl
+    fn parse_struct_declaration(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
+        self.parse_struct_union_declaration(CompositeKind::Struct)
     }
 
     // declspec = "char" | "int" | struct-decl
@@ -790,6 +807,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword("char") => Ok(Type::char()),
             TokenKind::Keyword("int") => Ok(Type::integer()),
             TokenKind::Keyword("struct") => self.parse_struct_declaration(),
+            TokenKind::Keyword("union") => self.parse_union_declaration(),
             _ => Err(self.err_unexpected_token(TokenKind::Keyword("typename"), *info)),
         }
     }
@@ -1193,12 +1211,12 @@ impl<'a> Parser<'a> {
             .map_err(|e| self.err_type_error(e, info))
     }
 
-    fn struct_member_access(
+    fn struct_union_member_access(
         &mut self,
         node: Node<'a>,
         info: Info,
     ) -> Result<Node<'a>, ParseError<'a>> {
-        let member = self.get_struct_member(&node, info)?;
+        let member = self.get_composite_member(&node, info)?;
         Node::new(
             NodeKind::MemberAccess {
                 of: Box::new(node),
@@ -1209,13 +1227,16 @@ impl<'a> Parser<'a> {
         .map_err(|e| self.err_type_error(e, info))
     }
 
-    fn get_struct_member(
+    fn get_composite_member(
         &mut self,
         of: &Node<'a>,
         info: Info,
     ) -> Result<Rc<Member<'a>>, ParseError<'a>> {
-        let TypeKind::Struct { members } = &of.node_type.kind else {
-            return Err(self.emit_error(ParseErrorKind::MemberAccessOnNonStruct, info));
+        let members = match &of.node_type.kind {
+            TypeKind::Composite { members, .. } => members,
+            _ => {
+                return Err(self.emit_error(ParseErrorKind::MemberAccessOnNonComposite, info));
+            }
         };
 
         let Some(&Token {
@@ -1229,7 +1250,7 @@ impl<'a> Parser<'a> {
 
         let Some(member) = members.get(member) else {
             return Err(self.emit_error(
-                ParseErrorKind::InvalidStructMember {
+                ParseErrorKind::InvalidCompositeMember {
                     member: member.into(),
                 },
                 info,
@@ -1264,7 +1285,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Punctuation(".") => {
                     self.tokens().next();
-                    node = self.struct_member_access(node, *info)?;
+                    node = self.struct_union_member_access(node, *info)?;
                 }
                 TokenKind::Punctuation("->") => {
                     self.tokens().next();
@@ -1272,7 +1293,7 @@ impl<'a> Parser<'a> {
                     // x->y => (*x).y
                     node = Node::new(NodeKind::unary(UnaryKind::Deref, Box::new(node)), *info)
                         .map_err(|e| self.err_type_error(e, *info))?;
-                    node = self.struct_member_access(node, *info)?;
+                    node = self.struct_union_member_access(node, *info)?;
                 }
                 _ => break,
             }
@@ -1550,9 +1571,9 @@ impl<'a> Parser<'a> {
             TypeError::InvalidOperands => ParseErrorKind::InvalidOperands,
             TypeError::NonLValueAssignment => ParseErrorKind::NonLValueAssignment,
             TypeError::StatementExprReturnsVoid => ParseErrorKind::StatementExprReturnsVoid,
-            TypeError::MemberAccessOnNonStruct => ParseErrorKind::MemberAccessOnNonStruct,
+            TypeError::MemberAccessOnNonStruct => ParseErrorKind::MemberAccessOnNonComposite,
             TypeError::InvalidStructMember { member } => {
-                ParseErrorKind::InvalidStructMember { member }
+                ParseErrorKind::InvalidCompositeMember { member }
             }
         };
 
