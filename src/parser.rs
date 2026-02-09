@@ -873,7 +873,7 @@ impl<'a> Parser<'a> {
         Ok(decl_type)
     }
 
-    // declarator = "*"* ident type-suffix
+    // declarator = "*"* ("(" ident ")" | "(" declarator ")" | ident) type-suffix
     fn parse_declarator(
         &mut self,
         base_type: Rc<Type<'a>>,
@@ -886,6 +886,26 @@ impl<'a> Parser<'a> {
         {
             self.tokens().next();
             decl_type = Type::pointer_to(&decl_type);
+        }
+
+        if let Some(Token {
+            kind: TokenKind::Punctuation("("),
+            ..
+        }) = self.tokens().peek()
+        {
+            self.tokens().next();
+            let inner_decl_type = decl_type;
+            let type_suffix = {
+                let guard = LookaheadGuard::new(self);
+                guard.parser.parse_declarator(Type::none())?;
+                guard.parser.expect_next(TokenKind::Punctuation(")"))?;
+                guard.parser.parse_type_suffix(inner_decl_type.clone())?
+            };
+            let decl_type = self.parse_declarator(type_suffix)?;
+            self.expect_next(TokenKind::Punctuation(")"))?;
+            self.parse_type_suffix(inner_decl_type)?;
+
+            return Ok(decl_type);
         }
 
         let Some(Token { kind, info }) = self.tokens().next() else {

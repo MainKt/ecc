@@ -3,6 +3,24 @@ use std::{path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 #[test]
+fn nested_type_declarations() {
+    assert_exit_status("int main() { char *x[3]; sizeof(x); }", 24);
+    assert_exit_status("int main() { char (*x)[3]; sizeof(x); }", 8);
+    assert_exit_status("int main() { char (x); sizeof(x); }", 1);
+    assert_exit_status("int main() { char (x)[3]; sizeof(x); }", 3);
+    assert_exit_status("int main() { char (x[3])[4]; sizeof(x); }", 12);
+    assert_exit_status("int main() { char (x[3])[4]; sizeof(x[0]); }", 4);
+    assert_exit_status(
+        "int main() { char *x[3]; char y; x[0]=&y; y=3; x[0][0]; }",
+        3,
+    );
+    assert_exit_status(
+        "int main() { char x[3]; char (*y)[3]=x; y[0][0]=4; y[0][0]; }",
+        4,
+    );
+}
+
+#[test]
 fn short() {
     assert_exit_status("int main() { short x; sizeof(x); }", 2);
     assert_exit_status("int main() { struct {char a; short b;} x; sizeof(x); }", 4);
