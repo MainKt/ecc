@@ -807,6 +807,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword("char") => Ok(Type::char()),
             TokenKind::Keyword("int") => Ok(Type::integer()),
             TokenKind::Keyword("long") => Ok(Type::long()),
+            TokenKind::Keyword("short") => Ok(Type::short()),
             TokenKind::Keyword("struct") => self.parse_struct_declaration(),
             TokenKind::Keyword("union") => self.parse_union_declaration(),
             _ => Err(self.err_unexpected_token(TokenKind::Keyword("typename"), *info)),

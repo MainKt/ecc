@@ -20,6 +20,7 @@ pub enum DerivedKind {
 #[derive(Debug)]
 pub enum Integer {
     Char,
+    Short,
     Int,
     Long,
 }
@@ -61,6 +62,12 @@ thread_local! {
         alignment: 1,
     });
 
+    static SHORT: Rc<Type<'static>> = Rc::new(Type {
+        kind: TypeKind::Integer(Integer::Short),
+        size: 2,
+        alignment: 2,
+    });
+
     static INT: Rc<Type<'static>> = Rc::new(Type {
         kind: TypeKind::Integer(Integer::Int),
         size: 4,
@@ -87,6 +94,10 @@ pub enum TypeError<'a> {
 impl<'a> Type<'a> {
     pub fn char() -> Rc<Self> {
         CHAR.with(|t| t.clone())
+    }
+
+    pub fn short() -> Rc<Self> {
+        SHORT.with(|t| t.clone())
     }
 
     pub fn integer() -> Rc<Self> {

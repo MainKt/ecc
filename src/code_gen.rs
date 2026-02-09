@@ -41,6 +41,7 @@ pub struct CodeGen<'a> {
 }
 
 static ARG_REGISTERS_8: [&'static str; 6] = ["%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"];
+static ARG_REGISTERS_16: [&'static str; 6] = ["%di", "%si", "%dx", "%cx", "%r8w", "%r9w"];
 static ARG_REGISTERS_32: [&'static str; 6] = ["%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"];
 static ARG_REGISTERS_64: [&'static str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
 
@@ -94,6 +95,7 @@ impl<'a> CodeGen<'a> {
             }
             let register = (match param.object_type.size {
                 1 => ARG_REGISTERS_8,
+                2 => ARG_REGISTERS_16,
                 4 => ARG_REGISTERS_32,
                 _ => ARG_REGISTERS_64,
             })[i];
@@ -202,6 +204,7 @@ impl<'a> CodeGen<'a> {
 
         let mov = match load_type.size {
             1 => "movsbq",
+            2 => "movswq",
             4 => "movsxd",
             _ => "mov",
         };
@@ -224,6 +227,7 @@ impl<'a> CodeGen<'a> {
 
         let reg = match store_type.size {
             1 => "al",
+            2 => "ax",
             4 => "eax",
             _ => "rax",
         };
