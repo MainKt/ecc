@@ -385,6 +385,7 @@ pub enum ParseErrorKind<'a> {
     ExpectedExpression,
     InvalidOperands,
     UnexpectedToken { expected: TokenKind<'a> },
+    InvalidType,
     UnusualEndOfTokens,
     ExpectedNumber,
     ExpectedVariableName,
@@ -438,6 +439,7 @@ impl<'a> std::fmt::Display for ParseError<'a> {
             }
             ParseErrorKind::UnknownCompositeType => write!(f, "unknown struct or union type"),
             ParseErrorKind::VariableDeclaredVoid => write!(f, "variable declared void"),
+            ParseErrorKind::InvalidType => write!(f, "invalid type"),
         }
     }
 }
@@ -480,7 +482,7 @@ impl<'a> Parser<'a> {
         if self.lookahead_tokens.is_some() {
             return;
         }
-        self.lookahead_tokens = Some(self.tokens.clone());
+        self.lookahead_tokens = Some(self.tokens().clone());
     }
 
     fn disable_lookahead(&mut self) {
@@ -742,14 +744,14 @@ impl<'a> Parser<'a> {
     ) -> Result<Vec<(Cow<'a, str>, Rc<Type<'a>>)>, ParseError<'a>> {
         let mut members = vec![];
 
-        while let Some(Token { kind, .. }) = self.tokens.peek() {
+        while let Some(Token { kind, .. }) = self.tokens().peek() {
             if let TokenKind::Punctuation("}") = kind {
                 break;
             }
             let base_type = self.parse_declaration_spec()?;
             let mut decl_count = 0;
 
-            while let Some(Token { kind, .. }) = self.tokens.peek() {
+            while let Some(Token { kind, .. }) = self.tokens().peek() {
                 if let TokenKind::Punctuation(";") = kind {
                     break;
                 }
@@ -815,22 +817,60 @@ impl<'a> Parser<'a> {
         self.parse_struct_union_declaration(CompositeKind::Struct)
     }
 
-    // declspec = "void" | "char" | "short" | "int" | "long"
-    //          | struct-decl | union-decl
+    // declspec = ("void" | "char" | "short" | "int" | "long"
+    //          | struct-decl | union-decl)+
     fn parse_declaration_spec(&mut self) -> Result<Rc<Type<'a>>, ParseError<'a>> {
-        let Some(Token { kind, info }) = self.tokens().next() else {
+        let Some(Token { info, .. }) = self.tokens().peek() else {
             return Err(self.err_unusual_end_of_tokens());
         };
 
-        match kind {
-            TokenKind::Keyword("void") => Ok(Type::void()),
-            TokenKind::Keyword("char") => Ok(Type::char()),
-            TokenKind::Keyword("int") => Ok(Type::integer()),
-            TokenKind::Keyword("long") => Ok(Type::long()),
-            TokenKind::Keyword("short") => Ok(Type::short()),
-            TokenKind::Keyword("struct") => self.parse_struct_declaration(),
-            TokenKind::Keyword("union") => self.parse_union_declaration(),
-            _ => Err(self.err_unexpected_token(TokenKind::Keyword("typename"), *info)),
+        #[derive(PartialOrd, Ord, PartialEq, Eq)]
+        enum Spec {
+            Void,
+            Char,
+            Short,
+            Int,
+            Long,
+            Struct,
+            Union,
+        }
+
+        let mut composite_type = Type::none();
+        let mut specs = Vec::new();
+        while let Some(Token {
+            kind: TokenKind::Keyword(keyword),
+            ..
+        }) = self.tokens().peek()
+            && Type::is_type_name(keyword)
+        {
+            self.tokens().next();
+            specs.push(match keyword.as_ref() {
+                "void" => Spec::Void,
+                "char" => Spec::Char,
+                "int" => Spec::Int,
+                "long" => Spec::Long,
+                "short" => Spec::Short,
+                "struct" => {
+                    composite_type = self.parse_struct_declaration()?;
+                    Spec::Struct
+                }
+                "union" => {
+                    composite_type = self.parse_union_declaration()?;
+                    Spec::Union
+                }
+                _ => return Err(self.emit_error(ParseErrorKind::InvalidType, *info)),
+            });
+        }
+        specs.sort();
+
+        match specs.as_slice() {
+            [Spec::Void] => Ok(Type::void()),
+            [Spec::Char] => Ok(Type::char()),
+            [Spec::Short] | [Spec::Short, Spec::Int] => Ok(Type::short()),
+            [Spec::Int] => Ok(Type::int()),
+            [Spec::Long] | [Spec::Int, Spec::Long] => Ok(Type::long()),
+            [Spec::Struct] | [Spec::Union] => Ok(composite_type),
+            _ => Err(self.emit_error(ParseErrorKind::InvalidType, *info)),
         }
     }
 
@@ -1216,9 +1256,9 @@ impl<'a> Parser<'a> {
             kind: TokenKind::Punctuation(","),
             info,
             ..
-        }) = self.tokens.peek()
+        }) = self.tokens().peek()
         {
-            self.tokens.next();
+            self.tokens().next();
             return Ok(Node::new(
                 NodeKind::binary(
                     BinaryKind::Comma,
@@ -1288,7 +1328,7 @@ impl<'a> Parser<'a> {
             kind: TokenKind::Identifier(member),
             info,
             ..
-        }) = self.tokens.next()
+        }) = self.tokens().next()
         else {
             return Err(self.emit_error(ParseErrorKind::ExpectedMemberIdentifier, info));
         };
@@ -1583,7 +1623,7 @@ impl<'a> Parser<'a> {
                 let difference = Node::new_of_type(
                     NodeKind::binary(BinaryKind::Subtract, lhs, rhs),
                     info,
-                    Type::integer(),
+                    Type::int(),
                 );
 
                 Ok(Node::new(

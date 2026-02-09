@@ -107,7 +107,7 @@ impl<'a> Type<'a> {
         SHORT.with(|t| t.clone())
     }
 
-    pub fn integer() -> Rc<Self> {
+    pub fn int() -> Rc<Self> {
         INT.with(|t| t.clone())
     }
 
@@ -227,7 +227,7 @@ impl<'a> Type<'a> {
 
     pub fn of(kind: &NodeKind<'a>) -> Result<Rc<Self>, TypeError<'a>> {
         match kind {
-            NodeKind::Numeric { .. } => Ok(Self::integer()),
+            NodeKind::Numeric { .. } => Ok(Self::int()),
             NodeKind::Variable(object) => Ok(object.object_type.clone()),
             NodeKind::Binary { kind, rhs, lhs, .. } => match kind {
                 BinaryKind::Add
@@ -245,10 +245,10 @@ impl<'a> Type<'a> {
                         Ok(lhs.node_type.clone())
                     }
                 }
-                BinaryKind::Equal => Ok(Self::integer()),
-                BinaryKind::NotEqual => Ok(Self::integer()),
-                BinaryKind::LessThan => Ok(Self::integer()),
-                BinaryKind::LessThanEqual => Ok(Self::integer()),
+                BinaryKind::Equal => Ok(Self::int()),
+                BinaryKind::NotEqual => Ok(Self::int()),
+                BinaryKind::LessThan => Ok(Self::int()),
+                BinaryKind::LessThanEqual => Ok(Self::int()),
                 BinaryKind::Comma => Ok(rhs.node_type.clone()),
             },
             NodeKind::Unary { kind, lhs, .. } => match kind {
